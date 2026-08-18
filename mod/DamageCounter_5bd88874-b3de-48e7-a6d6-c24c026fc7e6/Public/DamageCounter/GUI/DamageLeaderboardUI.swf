@@ -1,0 +1,9 @@
+import flash.external.ExternalInterface;
+
+ExternalInterface.addCallback("showMessage", function(message:String):void {
+    trace("Message from Lua: " + message);
+    var tf:TextField = new TextField();
+    tf.text = message;
+    tf.width = 300;
+    addChild(tf);
+});

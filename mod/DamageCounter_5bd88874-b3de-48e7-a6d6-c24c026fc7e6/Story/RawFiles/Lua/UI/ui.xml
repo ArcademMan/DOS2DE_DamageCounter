@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui>
+    <layout>
+        <panel id="mainPanel" width="300" height="200" texture="Public/Game/GUI/white.dds">
+            <textfield id="inputField" width="280" height="30" maxChars="100" />
+            <button id="submitButton" width="100" height="30" caption="Submit" />
+        </panel>
+    </layout>
+</ui>

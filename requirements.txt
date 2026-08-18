@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pillow
+PySide6
+
+# solo per produrre l'exe:
+# pyinstaller

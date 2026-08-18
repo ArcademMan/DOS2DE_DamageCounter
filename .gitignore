@@ -1,0 +1,28 @@
+# build PyInstaller
+build/
+dist/
+dist2/
+
+# icone: asset estratti dai pak del gioco e derivati (rigenerabili con
+# tools/build_icon_index.py; non ridistribuibili, sono asset Larian)
+icon_assets/
+icon_index.json
+static/icons/
+
+# ambiente di sviluppo locale
+.venv/
+.idea/
+
+# stato locale
+config.json
+server_error.log
+__pycache__/
+*.pyc
+
+# appunti di lavoro locali (percorsi di questa macchina)
+HANDOFF.md
+
+
+# log dell'editor Larian (enorme e inutile nel repo)
+mod/**/Story/log.txt
+

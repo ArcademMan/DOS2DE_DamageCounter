@@ -1,0 +1,8 @@
+{
+    "RequiredExtensionVersion": 58,
+    "ModTable": "DamageCounter",
+    "FeatureFlags": [
+        "OsirisExtensions",
+        "Lua"
+    ]
+}
