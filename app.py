@@ -22,6 +22,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from icon_indexer import data_dir
+
 # --- percorso del file scritto dalla mod -----------------------------------
 #
 # Il lato Lua scrive solo il NOME del file: e' lo Script Extender a metterlo
@@ -71,7 +73,8 @@ def find_stats_file() -> Path:
 
 STATS_PATH = Path(os.environ["DC_STATS_PATH"]) if os.environ.get("DC_STATS_PATH") else find_stats_file()
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).parent      # moduli e pagine (nell'exe: _internal)
+DATA_DIR = data_dir()                 # dati dell'utente (nell'exe: accanto all'exe)
 STATIC_DIR = BASE_DIR / "static"
 
 app = FastAPI(title="DamageCounter", docs_url=None, redoc_url=None)
@@ -131,22 +134,45 @@ def spells() -> FileResponse:
 
 # --- icone skill -------------------------------------------------------------
 #
-# icon_index.json (generato da tools/build_icon_index.py) mappa ogni nome
-# icona sulla sua texture atlas DDS + coordinate UV. Il PNG viene ritagliato
-# alla prima richiesta e messo in cache su disco: le richieste successive
-# servono il file gia' pronto.
+# icon_index.json mappa ogni nome icona sulla sua texture atlas DDS +
+# coordinate UV. Il PNG viene ritagliato alla prima richiesta e messo in
+# cache su disco: le richieste successive servono il file gia' pronto.
+#
+# L'indice si puo' generare con tools/build_icon_index.py, ma non serve:
+# se manca e la cartella icon_assets/ esiste (accanto all'exe, o nella root
+# del progetto), viene costruito da solo all'avvio del server. Basta quindi
+# mettere gli atlas estratti in icon_assets/ e riavviare l'app. Per
+# rigenerarlo dopo aver aggiunto altri file: cancellare icon_index.json.
 
-ICON_INDEX_PATH = BASE_DIR / "icon_index.json"
-ICON_CACHE_DIR = STATIC_DIR / "icons"
+ICON_INDEX_PATH = DATA_DIR / "icon_index.json"
+ICON_ASSETS_DIR = DATA_DIR / "icon_assets"
+ICON_CACHE_DIR = DATA_DIR / "icon_cache"
+
+if not ICON_INDEX_PATH.exists() and ICON_ASSETS_DIR.is_dir():
+    from icon_indexer import build_index
+
+    print(f"icon_index.json assente: scansiono {ICON_ASSETS_DIR} ...")
+    _n_icons, _n_atlases = build_index(ICON_ASSETS_DIR, ICON_INDEX_PATH)
+    if _n_icons:
+        print(f"  indice costruito: {_n_icons} icone da {_n_atlases} atlas")
+    else:
+        print("  nessun atlas trovato (servono coppie .lsx + .dds): niente icone")
 _icon_index: dict | None = None
+_icon_index_mtime: float | None = None
 _ICON_NAME_RE = re.compile(r"[A-Za-z0-9_.\-()]+")
 
 
 def _load_icon_index() -> dict:
-    global _icon_index
-    if _icon_index is None:
+    global _icon_index, _icon_index_mtime
+    try:
+        mtime = ICON_INDEX_PATH.stat().st_mtime
+    except OSError:
+        _icon_index, _icon_index_mtime = {}, None
+        return {}
+    if _icon_index is None or mtime != _icon_index_mtime:
         try:
             _icon_index = json.loads(ICON_INDEX_PATH.read_text(encoding="utf-8"))
+            _icon_index_mtime = mtime
         except (OSError, json.JSONDecodeError):
             _icon_index = {}
     return _icon_index
@@ -174,8 +200,14 @@ def icon(name: str):
             status_code=404,
         )
 
+    # I percorsi DDS sono assoluti (indice nuovo) o relativi al progetto
+    # (indice generato dalle vecchie versioni dello script).
+    dds_path = Path(entry["dds"])
+    if not dds_path.is_absolute():
+        dds_path = DATA_DIR / dds_path
+
     try:
-        img = Image.open(BASE_DIR / entry["dds"])
+        img = Image.open(dds_path)
         w, h = img.size
         box = (
             round(entry["u1"] * w),

@@ -7,70 +7,32 @@ Gli atlas del gioco sono coppie di file con lo stesso nome base:
 I file vanno prima estratti dai .pak (divine.exe) dentro icon_assets/; questo
 script scansiona quella cartella e scrive l'indice che app.py usa per
 ritagliare i PNG a richiesta. Rilanciarlo dopo ogni nuova estrazione.
+(In alternativa: trascina la cartella degli atlas sulla finestra dell'app
+desktop, che fa la stessa cosa.)
 
 Uso:
-    python tools/build_icon_index.py
+    python tools/build_icon_index.py [cartella_atlas]
 """
 
 from __future__ import annotations
 
-import json
-import xml.etree.ElementTree as ET
+import sys
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
-ASSETS = BASE / "icon_assets"
-OUT = BASE / "icon_index.json"
+sys.path.insert(0, str(BASE))
 
-
-def find_dds(name: str) -> Path | None:
-    """Texture con lo stesso nome base dell'atlas, ovunque sia nell'albero."""
-    for p in ASSETS.rglob(name + ".dds"):
-        return p
-    return None
-
-
-def parse_atlas(lsx: Path) -> dict[str, dict]:
-    root = ET.parse(lsx).getroot()
-    icons: dict[str, dict] = {}
-    for node in root.iter("node"):
-        if node.get("id") != "IconUV":
-            continue
-        attrs = {a.get("id"): a.get("value") for a in node.iter("attribute")}
-        key = attrs.get("MapKey")
-        if not key:
-            continue
-        try:
-            icons[key] = {
-                "u1": float(attrs["U1"]),
-                "v1": float(attrs["V1"]),
-                "u2": float(attrs["U2"]),
-                "v2": float(attrs["V2"]),
-            }
-        except (KeyError, ValueError):
-            continue
-    return icons
+from icon_indexer import build_index  # noqa: E402
 
 
 def main() -> None:
-    index: dict[str, dict] = {}
-    n_atlases = 0
-    for lsx in sorted(ASSETS.rglob("*.lsx")):
-        dds = find_dds(lsx.stem)
-        if dds is None:
-            print(f"salto {lsx.name}: nessuna texture {lsx.stem}.dds")
-            continue
-        icons = parse_atlas(lsx)
-        if not icons:
-            continue
-        n_atlases += 1
-        rel = str(dds.relative_to(BASE)).replace("\\", "/")
-        for key, uv in icons.items():
-            uv["dds"] = rel
-            index[key] = uv  # in caso di doppioni vince l'ultimo atlas
-        print(f"{lsx.name}: {len(icons)} icone -> {dds.name}")
-    OUT.write_text(json.dumps(index), encoding="utf-8")
-    print(f"\n{len(index)} icone da {n_atlases} atlas -> {OUT.name}")
+    assets = Path(sys.argv[1]) if len(sys.argv) > 1 else BASE / "icon_assets"
+    if not assets.is_dir():
+        print(f"cartella non trovata: {assets}")
+        raise SystemExit(1)
+    out = BASE / "icon_index.json"
+    n_icons, n_atlases = build_index(assets, out)
+    print(f"\n{n_icons} icone da {n_atlases} atlas -> {out.name}")
 
 
 if __name__ == "__main__":

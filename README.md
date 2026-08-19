@@ -75,17 +75,24 @@ on the export refreshes itself (at most every 2 s, only when something changed).
 
 ### Skill icons (optional)
 
-Icons are cropped from the game's own texture atlases, which are **not
-redistributed** with this repository. To enable them, extract the atlases with
-[divine.exe (LSLib)](https://github.com/Norbyte/lslib) into `icon_assets/` and
-build the index:
+Icons are cropped from the game's own texture atlases, which are copyrighted
+Larian assets and therefore **not redistributed** with this repository or with
+the exe. If you extract them yourself, just drop them in the right folder and
+everything lights up on its own:
 
-```bash
-python tools/build_icon_index.py
-```
+1. Extract `Shared.pak` (from `...\Divinity Original Sin 2\DefEd\Data\`) with
+   [divine.exe (LSLib)](https://github.com/Norbyte/lslib). The files that
+   matter are the atlas pairs: `Public/Shared/GUI/*.lsx` +
+   `Public/Shared/Assets/Textures/Icons/*.dds`. Paks of other installed mods
+   can be added the same way for their custom skill icons.
+2. Put the extracted files into an `icon_assets/` folder **next to the exe**
+   (or in the repository root if you run from source). Any layout works — the
+   folder is scanned recursively.
+3. Restart the app. On startup it finds the atlases, builds `icon_index.json`
+   by itself, then crops each icon on first request and caches the PNG.
 
-The server then crops each icon on first request and caches the PNG. Without
-the index the pages simply show no icons — nothing breaks.
+Added more files later? Delete `icon_index.json` and restart to rescan.
+Without `icon_assets/` the pages simply show no icons — nothing breaks.
 
 ## Desktop exe
 
@@ -95,7 +102,9 @@ pyinstaller --noconfirm DamageCounter.spec
 ```
 
 Output: `dist/DamageCounter/DamageCounter.exe` — a self-contained folder, no
-Python required on the target machine.
+Python required on the target machine. The exe ships **without skill icons**
+(see above: they are Larian's assets); to enable them, place your own
+extracted `icon_assets/` folder next to `DamageCounter.exe`.
 
 ## How it works
 

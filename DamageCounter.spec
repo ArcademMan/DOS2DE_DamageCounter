@@ -17,10 +17,11 @@ a = Analysis(
     ["desktop.py"],
     pathex=[],
     binaries=[],
+    # NIENTE icon_assets/icon_index.json qui: sono ritagli delle texture di
+    # Larian e non si possono redistribuire. L'exe li cerca a runtime nella
+    # cartella icon_assets/ accanto all'eseguibile (vedi app.py).
     datas=[
         ("static", "static"),
-        ("icon_index.json", "."),
-        ("icon_assets", "icon_assets"),
         ("icon.png", "."),
     ],
     hiddenimports=[
