@@ -55,11 +55,13 @@ DamageCounter.spec          PyInstaller build for the desktop exe
 ### Mod
 
 1. Install [Norbyte's Script Extender](https://github.com/Norbyte/ositools).
-2. Copy `mod/DamageCounter_<uuid>/` into
-   `...\Divinity Original Sin 2\DefEd\Data\Mods\`, and the packed `.pak`
-   (build it from the editor, or ask on the releases page) into
-   `Documents\Larian Studios\Divinity Original Sin 2 Definitive Edition\Mods\`.
+2. Subscribe to [DamageCounter on the Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3786442402)
+   — Steam downloads the `.pak` for you.
 3. Enable **DamageCounter** in the in-game mod manager and load a save.
+
+(Manual alternative: build the `.pak` from `mod/DamageCounter_<uuid>/` with
+the Divinity Engine 2 and drop it into
+`Documents\Larian Studios\Divinity Original Sin 2 Definitive Edition\Mods\`.)
 
 ### Dashboard
 
