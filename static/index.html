@@ -18,6 +18,13 @@
       <span class="sub">Divinity: Original Sin 2</span>
     </div>
 
+    <div class="runpick" v-if="runs.length" title="View a previous run">
+      <select v-model="selectedRun" @change="runChanged">
+        <option value="">Live</option>
+        <option v-for="r in runs" :key="r.run" :value="r.run">{{ runLabel(r) }}</option>
+      </select>
+    </div>
+
     <div class="status" :class="statusClass">
       <span class="dot"></span>
       <span>{{ statusText }}</span>

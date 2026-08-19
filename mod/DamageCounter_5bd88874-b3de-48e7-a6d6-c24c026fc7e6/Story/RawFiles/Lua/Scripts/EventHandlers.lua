@@ -942,6 +942,16 @@ end
 
 local function DC_BuildPayload()
 	local players = {}
+
+	-- Personaggio dell'host: serve per marcare isHost e per scegliere il
+	-- profilo "proprietario" della run in modo deterministico. L'Osiris
+	-- restituisce il guid con prefisso di nome: si tengono gli ultimi 36
+	-- caratteri, lo stesso formato delle chiavi di DamageStats.
+	local hostGuid
+	local okH, host = pcall(Osi.CharacterGetHostCharacter)
+	if okH and type(host) == "string" and #host >= 36 then
+		hostGuid = string.sub(host, -36)
+	end
 	for guid, stats in pairs(PersistentVars.DamageStats or {}) do
 		if #guid == 36 and guid ~= DC_NULL then
 			local okE, ent = pcall(Ext.Entity.GetCharacter, guid)
@@ -1003,6 +1013,7 @@ local function DC_BuildPayload()
 					userId = userId,
 					profileId = profileId,
 					userName = userName,
+					isHost = (hostGuid ~= nil and guid == hostGuid) or false,
 					stats = copy,
 					skills = skills,
 					derived = {
@@ -1018,13 +1029,23 @@ local function DC_BuildPayload()
 			end
 		end
 	end
-	-- Il profilo "proprietario" della run e' quello del primo personaggio che
-	-- risulta assegnato a un giocatore umano; in singolo e' l'host.
+	-- Il profilo "proprietario" della run e' quello dell'HOST: e' sulla sua
+	-- macchina che questo codice gira e che i file vengono scritti. Il primo
+	-- umano trovato resta solo come ripiego se l'host non e' identificabile
+	-- (l'ordine di pairs non e' deterministico, non puo' essere la regola).
 	local ownerProfile, ownerName
 	for _, pl in ipairs(players) do
-		if pl.profileId then
+		if pl.isHost and pl.profileId then
 			ownerProfile, ownerName = pl.profileId, pl.userName
 			break
+		end
+	end
+	if ownerProfile == nil then
+		for _, pl in ipairs(players) do
+			if pl.profileId then
+				ownerProfile, ownerName = pl.profileId, pl.userName
+				break
+			end
 		end
 	end
 
@@ -1033,6 +1054,7 @@ local function DC_BuildPayload()
 		runId = DC_RunId(),
 		profileId = ownerProfile,
 		profileName = ownerName,
+		hostGuid = hostGuid,
 		playerCount = #players,
 		players = players,
 	}

@@ -18,13 +18,18 @@ createApp({
     const lastUpdate = ref(null);
     const now = ref(Date.now());
     const selectedGuid = ref(new URLSearchParams(window.location.search).get("char"));
+    // Run archiviata ereditata dal leaderboard ("" = live).
+    const selectedRun = new URLSearchParams(window.location.search).get("run") || "";
 
     let timer = null;
     let clock = null;
 
     async function poll() {
       try {
-        const res = await fetch("/api/stats", { cache: "no-store" });
+        const url = selectedRun
+          ? "/api/stats?run=" + encodeURIComponent(selectedRun)
+          : "/api/stats";
+        const res = await fetch(url, { cache: "no-store" });
         const body = await res.json();
         reason.value = body.reason || null;
         if (body.data && Array.isArray(body.data.players)) {
@@ -88,6 +93,8 @@ createApp({
 
     const statusText = computed(() => {
       if (reason.value === "server-unreachable") return "server unreachable";
+      if (reason.value === "run-missing") return "run not found";
+      if (selectedRun) return "archived run";
       if (reason.value === "file-missing") return "waiting for first export";
       if (reason.value === "partial-read") return "write in progress";
       return "listening";
@@ -95,9 +102,15 @@ createApp({
 
     const statusClass = computed(() => {
       if (reason.value === "server-unreachable") return "bad";
+      if (reason.value === "run-missing") return "bad";
+      if (selectedRun) return "warn";
       if (reason.value === "file-missing") return "warn";
       return "good";
     });
+
+    const backHref = computed(() =>
+      selectedRun ? "/?run=" + encodeURIComponent(selectedRun) : "/"
+    );
 
     const agoText = computed(() => {
       if (!lastUpdate.value) return "";
@@ -109,7 +122,7 @@ createApp({
 
     return {
       players, sorted, selectedGuid, selectedPlayer, skills,
-      select, skillName, statusText, statusClass, agoText,
+      select, skillName, statusText, statusClass, agoText, backHref,
       lastUpdate, intervalMs,
       fmt: formatNumber,
     };

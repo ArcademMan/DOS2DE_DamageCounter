@@ -72,12 +72,19 @@ createApp({
     const showZero = ref(false);
     const sortBy = ref("DamageDone");
 
+    // "" = live file; otherwise "profileId/runId" of an archived run.
+    const selectedRun = ref(new URLSearchParams(window.location.search).get("run") || "");
+    const runs = ref([]);
+
     let timer = null;
     let clock = null;
 
     async function poll() {
       try {
-        const res = await fetch("/api/stats", { cache: "no-store" });
+        const url = selectedRun.value
+          ? "/api/stats?run=" + encodeURIComponent(selectedRun.value)
+          : "/api/stats";
+        const res = await fetch(url, { cache: "no-store" });
         const body = await res.json();
         ok.value = body.ok;
         reason.value = body.reason || null;
@@ -85,6 +92,8 @@ createApp({
         if (body.data && Array.isArray(body.data.players)) {
           players.value = body.data.players;
           if (body.ok) lastUpdate.value = Date.now();
+        } else if (!body.ok) {
+          players.value = [];
         }
       } catch (e) {
         ok.value = false;
@@ -92,8 +101,37 @@ createApp({
       }
     }
 
+    async function loadRuns() {
+      try {
+        const res = await fetch("/api/runs", { cache: "no-store" });
+        const body = await res.json();
+        if (body.ok && Array.isArray(body.runs)) runs.value = body.runs;
+      } catch (e) { /* niente lista run: il selettore resta nascosto */ }
+    }
+
+    function runChanged() {
+      const url = new URL(window.location);
+      if (selectedRun.value) url.searchParams.set("run", selectedRun.value);
+      else url.searchParams.delete("run");
+      history.replaceState(null, "", url);
+      players.value = [];
+      lastUpdate.value = null;
+      poll();
+    }
+
+    function runLabel(r) {
+      const when = new Date(r.mtime * 1000).toLocaleString("en-GB", {
+        day: "2-digit", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      });
+      const who = (r.players || []).filter(Boolean).slice(0, 4).join(", ");
+      const prof = r.profileName ? ` [${r.profileName}]` : "";
+      return `${when}${prof}${who ? " - " + who : ""}`;
+    }
+
     onMounted(() => {
       poll();
+      loadRuns();
       timer = setInterval(poll, intervalMs);
       clock = setInterval(() => (now.value = Date.now()), 1000);
     });
@@ -155,6 +193,8 @@ createApp({
 
     const statusText = computed(() => {
       if (reason.value === "server-unreachable") return "server unreachable";
+      if (reason.value === "run-missing") return "run not found";
+      if (selectedRun.value) return "archived run";
       if (reason.value === "file-missing") return "waiting for first export";
       if (reason.value === "partial-read") return "write in progress";
       return "listening";
@@ -162,6 +202,8 @@ createApp({
 
     const statusClass = computed(() => {
       if (reason.value === "server-unreachable") return "bad";
+      if (reason.value === "run-missing") return "bad";
+      if (selectedRun.value) return "warn";
       if (reason.value === "file-missing") return "warn";
       return "good";
     });
@@ -191,13 +233,16 @@ createApp({
     }
 
     function goSpells(p) {
-      window.location.href = "/spells?char=" + encodeURIComponent(p.guid);
+      let href = "/spells?char=" + encodeURIComponent(p.guid);
+      if (selectedRun.value) href += "&run=" + encodeURIComponent(selectedRun.value);
+      window.location.href = href;
     }
 
     return {
       players, sorted, rows, path, lastUpdate, intervalMs, showZero, sortBy,
       leaderGuid, statusText, statusClass, emptyTitle, emptyHint, agoText,
       share, summonWidth, rankOf,
+      selectedRun, runs, runChanged, runLabel,
       goSpells,
       fmt: formatNumber,
       pct: (v) => (Number(v) || 0).toFixed(0) + "%",

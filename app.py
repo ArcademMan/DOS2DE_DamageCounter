@@ -86,9 +86,64 @@ _last_good: dict | None = None
 _last_mtime: float = 0.0
 
 
+# Le run archiviate: la mod scrive una copia per partita in
+#   Osiris Data\DamageCounter\<profileId>\<runId>.json
+# accanto al file live. Da qui si possono rileggere partite vecchie.
+RUNS_DIR = STATS_PATH.parent / "DamageCounter"
+_RUN_PART_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+@app.get("/api/runs")
+def list_runs() -> JSONResponse:
+    runs: list[dict] = []
+    if RUNS_DIR.is_dir():
+        for prof_dir in RUNS_DIR.iterdir():
+            if not prof_dir.is_dir():
+                continue
+            for f in prof_dir.glob("*.json"):
+                entry = {
+                    "profileId": prof_dir.name,
+                    "runId": f.stem,
+                    "run": f"{prof_dir.name}/{f.stem}",
+                    "mtime": f.stat().st_mtime,
+                }
+                # I metadati leggibili (nome profilo, personaggi) stanno solo
+                # dentro il file: lettura intera, ma i file sono piccoli e
+                # la lista si chiede una volta, non in polling.
+                try:
+                    data = json.loads(f.read_text(encoding="utf-8"))
+                    entry["profileName"] = data.get("profileName")
+                    entry["playerCount"] = data.get("playerCount")
+                    entry["players"] = [
+                        p.get("name") for p in data.get("players", [])
+                    ]
+                except (OSError, json.JSONDecodeError):
+                    entry["unreadable"] = True
+                runs.append(entry)
+    runs.sort(key=lambda r: r["mtime"], reverse=True)
+    return JSONResponse({"ok": True, "dir": str(RUNS_DIR), "runs": runs})
+
+
 @app.get("/api/stats")
-def get_stats() -> JSONResponse:
+def get_stats(run: str | None = None) -> JSONResponse:
     global _last_good, _last_mtime
+
+    # Una run archiviata: file statico, niente cache ultimo-buono.
+    if run:
+        parts = run.split("/")
+        if len(parts) != 2 or not all(_RUN_PART_RE.fullmatch(p) for p in parts):
+            return JSONResponse({"ok": False, "reason": "bad-run"}, status_code=400)
+        f = RUNS_DIR / parts[0] / (parts[1] + ".json")
+        if not f.exists():
+            return JSONResponse({"ok": False, "reason": "run-missing",
+                                 "path": str(f)}, status_code=404)
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return JSONResponse({"ok": False, "reason": "run-unreadable",
+                                 "path": str(f)}, status_code=500)
+        return JSONResponse({"ok": True, "path": str(f), "archived": True,
+                             "mtime": f.stat().st_mtime, "data": data})
 
     if not STATS_PATH.exists():
         return JSONResponse(

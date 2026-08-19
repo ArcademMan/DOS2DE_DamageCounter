@@ -79,6 +79,28 @@ body {
 .status.warn .dot { background: var(--warn); }
 .status.bad  .dot { background: var(--bad); }
 
+/* Selettore run (Live / partite archiviate) nella barra in alto. */
+.runpick {
+  margin-left: auto;
+}
+
+.runpick select {
+  max-width: 340px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.runpick select:hover,
+.runpick select:focus {
+  border-color: var(--accent-soft);
+  outline: none;
+}
+
 /* --- schede giocatore ---------------------------------------------------- */
 
 .cards {
