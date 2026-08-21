@@ -1,15 +1,9 @@
 const { createApp, ref, computed, onMounted, onUnmounted } = Vue;
 
-// Stessa formattazione della pagina principale.
-function formatNumber(n) {
-  const v = Number(n) || 0;
-  const a = Math.abs(v);
-  if (a < 100_000) return Math.round(v).toLocaleString("en-US");
-  if (a < 1_000_000) return Math.round(v / 1000).toLocaleString("en-US") + "K";
-  return (v / 1_000_000).toFixed(1) + "M";
-}
+// Formattazione e nomi skill vivono in rows.js, condiviso tra le pagine.
+const formatNumber = dcFormatNumber;
 
-createApp({
+const app = createApp({
   setup() {
     const intervalMs = 1000;
 
@@ -79,17 +73,7 @@ createApp({
       history.replaceState(null, "", url);
     }
 
-    // Se il nome non e' stato tradotto dal gioco arriva l'id grezzo
-    // ("Projectile_Fireball"): togli il prefisso di categoria e spezza il
-    // CamelCase, che e' comunque piu' leggibile di niente.
-    const SKILL_PREFIXES = /^(Projectile|Target|Shout|Zone|Cone|Storm|Rain|Summon|Wall|Dome|Tornado|Rush|Jump|MultiStrike|Quake|ProjectileStrike)_/;
-    function skillName(s) {
-      if (s.name && s.name !== s.id) return s.name;
-      return s.id
-        .replace(SKILL_PREFIXES, "")
-        .replace(/_/g, " ")
-        .replace(/([a-z])([A-Z])/g, "$1 $2");
-    }
+    const skillName = dcSkillName;
 
     const statusText = computed(() => {
       if (reason.value === "server-unreachable") return "server unreachable";
@@ -127,4 +111,7 @@ createApp({
       fmt: formatNumber,
     };
   },
-}).mount("#app");
+});
+
+dcRegisterComponents(app);
+app.mount("#app");

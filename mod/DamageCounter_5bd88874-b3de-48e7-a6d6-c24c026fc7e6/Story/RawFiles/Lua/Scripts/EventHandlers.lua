@@ -138,7 +138,18 @@ local function InitializeStatTable()
 		StatusDamageDone = 0,
 		StatusHitDone = 0,
 		StatusDamageTaken = 0,
-		StatusHitTaken = 0
+		StatusHitTaken = 0,
+		-- Ripartizione del danno tra armatura (fisica+magica insieme: il
+		-- motore da' solo il totale assorbito, hit.Hit.ArmorAbsorption)
+		-- e vitalita'.
+		DamageToArmour = 0,
+		VitalityDamageDone = 0,
+		ArmourAbsorbed = 0,
+		VitalityDamageTaken = 0,
+		-- Controllo (stun, atterramenti, gelo, charm...) andato davvero a segno:
+		-- CharacterStatusApplied non scatta per i CC bloccati dall'armatura.
+		CCInflicted = 0,
+		CCReceived = 0
 	}
 end
 
@@ -253,6 +264,30 @@ local function UpdateStats(character, updates)
 	-- Segna soltanto: la scrittura su disco e' rimandata e limitata nel tempo.
 	-- DC_MarkDirty e' globale ed e' definita piu' sotto nel file; qui viene
 	-- risolta a runtime, quando la funzione esiste gia'.
+	if DC_MarkDirty then DC_MarkDirty() end
+end
+
+-- Come UpdateStats, ma per i contatori indicizzati per tipo di danno
+-- (stats.DamageByType / stats.DamageTakenByType): tabelle annidate dentro la
+-- voce del personaggio, con le stesse regole di accredito (evocazioni al
+-- padrone, solo giocanti).
+local function UpdateTypedStats(character, field, additions)
+	local actor = ResolveActor(character)
+	if actor == nil then return end
+	local okP, isPlayer = pcall(IsPlayer, actor)
+	if not okP or not isPlayer then return end
+
+	local stats = PersistentVars.DamageStats[actor]
+	if type(stats) ~= "table" then
+		stats = InitializeStatTable()
+		PersistentVars.DamageStats[actor] = stats
+	end
+	if type(stats[field]) ~= "table" then stats[field] = {} end
+	local t = stats[field]
+	for k, v in pairs(additions) do
+		t[k] = SafeStat((t[k] or 0) + v)
+	end
+
 	if DC_MarkDirty then DC_MarkDirty() end
 end
 
@@ -388,6 +423,17 @@ local function DC_HitFlag(hit, name)
 			"Le statistiche che dipendono da questo flag NON sono affidabili.")
 	end
 	return false
+end
+
+-- Avvisi una-volta-sola per campi che non risolvono: stessa filosofia di
+-- DC_HitFlag, un fallback muto qui conterebbe male in silenzio.
+dcMissingDamageFields = {}
+local function DC_WarnMissingField(name)
+	if not dcMissingDamageFields[name] then
+		dcMissingDamageFields[name] = true
+		Ext.Print("[DamageCounter] ATTENZIONE: campo '" .. name ..
+			"' non leggibile: le statistiche che ne dipendono non sono affidabili.")
+	end
 end
 
 local function DamageControl(target, instigator, hitDamage, handle, hitStatus)
@@ -548,6 +594,42 @@ local function DamageControl(target, instigator, hitDamage, handle, hitStatus)
 				end
 			end
 		end
+
+		-- DANNI PER TIPO + ARMATURA/VITALITA' + RESISTENZE. Tutto viene dal
+		-- DamageList del colpo, che porta i danni finali gia' separati per tipo.
+		local okDL, dlist = pcall(function() return hit.Hit.DamageList:ToTable() end)
+		if not okDL or type(dlist) ~= "table" then
+			DC_WarnMissingField("Hit.DamageList")
+		else
+			local byType = {}
+			for _, d in ipairs(dlist) do
+				local dt = tostring(d.DamageType)
+				local amt = math.floor(tonumber(d.Amount) or 0)
+				if amt > 0 then
+					byType[dt] = (byType[dt] or 0) + amt
+				end
+			end
+
+			if next(byType) ~= nil then
+				UpdateTypedStats(instigator.MyGuid, "DamageByType", byType)
+				UpdateTypedStats(target.MyGuid, "DamageTakenByType", byType)
+			end
+
+			-- Quota del colpo mangiata dall'armatura (fisica+magica insieme:
+			-- il motore da' solo il totale assorbito) e quota alla vitalita'.
+			local okAA, absorbed = pcall(function() return hit.Hit.ArmorAbsorption end)
+			if not okAA or type(absorbed) ~= "number" then
+				DC_WarnMissingField("Hit.ArmorAbsorption")
+				absorbed = 0
+			end
+			absorbed = math.max(0, math.min(math.floor(absorbed), hitDamage))
+			local toVitality = hitDamage - absorbed
+
+			UpdateStats(instigator.MyGuid,
+				{ VitalityDamageDone = toVitality, DamageToArmour = absorbed })
+			UpdateStats(target.MyGuid,
+				{ VitalityDamageTaken = toVitality, ArmourAbsorbed = absorbed })
+		end
 	end
 end
 
@@ -638,6 +720,7 @@ local function ResetStats()
 	Ext.Print("resetting stats...")
 	PersistentVars.DamageStats = {}
 	PersistentVars.SkillStats = {}
+	PersistentVars.Fights = {}
 end
 
 local function formatName(name)
@@ -914,6 +997,251 @@ local function DC_RunId()
 	return PersistentVars.RunId
 end
 
+-- PER-FIGHT ------------------------------------------------------
+-- Fotografia delle stats dei giocatori a inizio combattimento e differenza
+-- alla fine: il tracking normale non viene toccato, la fight e' solo una
+-- finestra sui contatori che gia' esistono. Lo snapshot vive in RAM: salvare
+-- e ricaricare A META' scontro perde la registrazione di QUELLO scontro
+-- (i totali restano comunque giusti).
+local DC_MAX_FIGHTS = 50   -- le fight vivono nel savegame: cap anti-gonfiaggio
+local dcCombatSnapshots = {}   -- combatId -> { startedAt, stats = {guid -> copia} }
+local dcCombatEnemies = {}     -- combatId -> { guid -> nome }: chi c'era contro
+
+local function DC_CopyStats(stats)
+	local copy = {}
+	for k, v in pairs(stats) do
+		if type(v) == "table" then
+			local sub = {}
+			for k2, v2 in pairs(v) do sub[k2] = v2 end
+			copy[k] = sub
+		else
+			copy[k] = v
+		end
+	end
+	return copy
+end
+
+-- Differenza corrente - snapshot. I contatori si sottraggono; HighestDamage
+-- e' un massimo, non un contatore: entra nel delta solo se il record e'
+-- stato battuto durante lo scontro.
+local function DC_DiffStats(cur, snap)
+	local diff, any = {}, false
+	for k, v in pairs(cur) do
+		if type(v) == "table" then
+			local sub, subAny = {}, false
+			local snapSub = type(snap[k]) == "table" and snap[k] or {}
+			for k2, v2 in pairs(v) do
+				local d = SafeStat(v2) - SafeStat(snapSub[k2])
+				if d > 0 then
+					sub[k2] = d
+					subAny = true
+				end
+			end
+			if subAny then
+				diff[k] = sub
+				any = true
+			end
+		elseif type(v) == "number" then
+			if k == "HighestDamage" then
+				if v > SafeStat(snap[k]) then
+					diff[k] = v
+					any = true
+				end
+			else
+				local d = SafeStat(v) - SafeStat(snap[k])
+				if d > 0 then
+					diff[k] = d
+					any = true
+				end
+			end
+		end
+	end
+	return diff, any
+end
+
+local function DC_TranslatedName(guid)
+	local okN, handle = pcall(Osi.CharacterGetDisplayName, guid)
+	if not okN or handle == nil or handle == "" then return nil end
+	local okT, tr = pcall(Ext.L10N.GetTranslatedString, handle, handle)
+	return (okT and tr ~= nil and tr ~= "") and tr or handle
+end
+
+-- Nome tradotto e icona di una skill dal suo stat entry. Usato sia dal
+-- payload generale sia dal dettaglio per-fight.
+local function DC_SkillMeta(skillId)
+	local name, icon = skillId, nil
+	local okS, statEntry = pcall(Ext.Stats.Get, skillId)
+	if okS and statEntry ~= nil then
+		local okI, ic = pcall(function() return statEntry.Icon end)
+		if okI then icon = ic end
+		local okD, dn = pcall(function() return statEntry.DisplayName end)
+		if okD and dn ~= nil and dn ~= "" then
+			local okT, tr = pcall(Ext.L10N.GetTranslatedStringFromKey, dn)
+			if not okT or tr == nil or tr == "" then
+				okT, tr = pcall(Ext.L10N.GetTranslatedString, dn, "")
+			end
+			if okT and tr ~= nil and tr ~= "" then name = tr end
+		end
+	end
+	return name, icon
+end
+
+-- Differenza per-skill (stessa logica di DC_DiffStats, sui contatori delle
+-- SkillStats). MaxHit e' un massimo: nel delta entra solo se il record e'
+-- stato battuto durante lo scontro, altrimenti resta assente ("-" in pagina).
+local function DC_DiffSkills(curByS, snapByS)
+	local out = {}
+	for id, s in pairs(curByS or {}) do
+		local sn = (snapByS or {})[id] or {}
+		local uses = SafeStat(s.Uses) - SafeStat(sn.Uses)
+		local hits = SafeStat(s.Hits) - SafeStat(sn.Hits)
+		local dmg  = SafeStat(s.Damage) - SafeStat(sn.Damage)
+		if uses > 0 or hits > 0 or dmg > 0 then
+			local name, icon = DC_SkillMeta(id)
+			local entry = {
+				id = id, name = name, icon = icon,
+				uses = uses, hits = hits, damage = dmg,
+				critHits = SafeStat(s.CritHits) - SafeStat(sn.CritHits),
+				critDamage = SafeStat(s.CritDamage) - SafeStat(sn.CritDamage),
+			}
+			if SafeStat(s.MaxHit) > SafeStat(sn.MaxHit) then
+				entry.maxHit = SafeStat(s.MaxHit)
+			end
+			table.insert(out, entry)
+		end
+	end
+	table.sort(out, function(a, b) return a.damage > b.damage end)
+	return out
+end
+
+local function DC_OnEnteredCombat(objectGuid, combatId)
+	local guid = NormalizeGuid(objectGuid)
+	if guid == nil then return end
+
+	-- Non-giocatore e non-evocazione = nemico (o NPC trascinato dentro):
+	-- se ne registra il nome per il "chi c'era" della fight. Dedup per guid,
+	-- cosi' rientrare in combattimento non lo conta due volte.
+	local okP, isP = pcall(IsPlayer, guid)
+	if okP and not isP then
+		local okS, isSummon = pcall(Osi.CharacterIsSummon, guid)
+		if not okS or isSummon ~= 1 then
+			local name = DC_TranslatedName(guid)
+			if name ~= nil then
+				local en = dcCombatEnemies[combatId]
+				if en == nil then
+					en = {}
+					dcCombatEnemies[combatId] = en
+				end
+				en[guid] = name
+			end
+		end
+		return
+	end
+
+	local actor = ResolveActor(guid)
+	if actor == nil then return end
+	local okA, isA = pcall(IsPlayer, actor)
+	if not okA or not isA then return end
+
+	local snap = dcCombatSnapshots[combatId]
+	if snap == nil then
+		snap = { startedAt = DC_Now(), stats = {}, skills = {} }
+		dcCombatSnapshots[combatId] = snap
+	end
+	-- Alla prima entrata di un giocatore si fotografano TUTTI i personaggi
+	-- conosciuti; chi compare in tabella solo dopo (primo colpo della sua
+	-- vita) alla fine viene confrontato con uno snapshot vuoto, che per un
+	-- personaggio appena nato e' la fotografia giusta.
+	for guid, stats in pairs(PersistentVars.DamageStats or {}) do
+		if snap.stats[guid] == nil and type(stats) == "table" then
+			snap.stats[guid] = DC_CopyStats(stats)
+		end
+	end
+	for guid, byS in pairs(PersistentVars.SkillStats or {}) do
+		if snap.skills[guid] == nil and type(byS) == "table" then
+			local c = {}
+			for id, s in pairs(byS) do
+				local sc = {}
+				for k, v in pairs(s) do sc[k] = v end
+				c[id] = sc
+			end
+			snap.skills[guid] = c
+		end
+	end
+end
+
+local function DC_OnCombatEnded(combatId)
+	local snap = dcCombatSnapshots[combatId]
+	dcCombatSnapshots[combatId] = nil
+	local enemySeen = dcCombatEnemies[combatId]
+	dcCombatEnemies[combatId] = nil
+	if snap == nil then return end
+
+	local playersOut = {}
+	for guid, stats in pairs(PersistentVars.DamageStats or {}) do
+		if type(stats) == "table" then
+			local diff, any = DC_DiffStats(stats, snap.stats[guid] or {})
+			if any then
+				table.insert(playersOut, {
+					guid = guid,
+					name = DC_TranslatedName(guid) or guid,
+					stats = diff,
+					skills = DC_DiffSkills(
+						(PersistentVars.SkillStats or {})[guid],
+						(snap.skills or {})[guid]),
+				})
+			end
+		end
+	end
+	-- Scontro in cui nessun giocatore ha mosso un numero: non vale un posto
+	-- nella lista (e nel savegame).
+	if #playersOut == 0 then return end
+
+	table.sort(playersOut, function(a, b)
+		return (a.stats.DamageDone or 0) > (b.stats.DamageDone or 0)
+	end)
+
+	local region
+	local okH, host = pcall(Osi.CharacterGetHostCharacter)
+	if okH and host ~= nil then
+		local okR, r = pcall(Osi.GetRegion, host)
+		if okR and r ~= nil and r ~= "" then region = r end
+	end
+
+	-- Nemici aggregati per nome: {name = "Voidwoken", n = 2}, dal piu'
+	-- numeroso. L'array (non una mappa) preserva l'ordine nel JSON.
+	local enemies = {}
+	if enemySeen ~= nil then
+		local counts = {}
+		for _, name in pairs(enemySeen) do
+			counts[name] = (counts[name] or 0) + 1
+		end
+		for name, n in pairs(counts) do
+			table.insert(enemies, { name = name, n = n })
+		end
+		table.sort(enemies, function(a, b)
+			if a.n ~= b.n then return a.n > b.n end
+			return a.name < b.name
+		end)
+	end
+
+	-- Niente data reale qui: il sandbox dell'Extender non espone os.time e
+	-- DC_Now() e' tempo monotonico (buono per la durata, non per "quando").
+	-- La data la assegna il server web al primo avvistamento della fight.
+	if type(PersistentVars.Fights) ~= "table" then PersistentVars.Fights = {} end
+	local fights = PersistentVars.Fights
+	table.insert(fights, {
+		combatId = combatId,
+		startedAt = snap.startedAt,
+		endedAt = DC_Now(),
+		region = region,
+		players = playersOut,
+		enemies = enemies,
+	})
+	while #fights > DC_MAX_FIGHTS do table.remove(fights, 1) end
+	if DC_MarkDirty then DC_MarkDirty() end
+end
+
 -- Profilo del giocatore che controlla un personaggio, via
 -- personaggio -> ID utente -> profilo. Tutte query server-side.
 local function DC_ProfileOf(guid)
@@ -979,20 +1307,7 @@ local function DC_BuildPayload()
 				-- quando estrarremo le texture.
 				local skills = {}
 				for skillId, s in pairs((PersistentVars.SkillStats or {})[guid] or {}) do
-					local skillName, skillIcon = skillId, nil
-					local okS, statEntry = pcall(Ext.Stats.Get, skillId)
-					if okS and statEntry ~= nil then
-						local okI, icon = pcall(function() return statEntry.Icon end)
-						if okI then skillIcon = icon end
-						local okD, dn = pcall(function() return statEntry.DisplayName end)
-						if okD and dn ~= nil and dn ~= "" then
-							local okT, tr = pcall(Ext.L10N.GetTranslatedStringFromKey, dn)
-							if not okT or tr == nil or tr == "" then
-								okT, tr = pcall(Ext.L10N.GetTranslatedString, dn, "")
-							end
-							if okT and tr ~= nil and tr ~= "" then skillName = tr end
-						end
-					end
+					local skillName, skillIcon = DC_SkillMeta(skillId)
 					table.insert(skills, {
 						id = skillId,
 						name = skillName,
@@ -1057,6 +1372,9 @@ local function DC_BuildPayload()
 		hostGuid = hostGuid,
 		playerCount = #players,
 		players = players,
+		-- Ultimi scontri (max DC_MAX_FIGHTS), dal piu' vecchio al piu' recente:
+		-- la pagina /fights li mostra al contrario.
+		fights = PersistentVars.Fights or {},
 	}
 end
 
@@ -1231,7 +1549,47 @@ local function safeListener(name, arity, when, fn)
 	return ok
 end
 
+-- CC "duri" vanilla, per id status. Gli status di mod di solito non hanno
+-- questi id ma sono COSTRUITI su questi tipi motore: per quelli decide il
+-- StatusType dello stat entry (INCAPACITATE copre stun/gelo/pietra/sonno).
+local DC_CC_STATUS = {
+	KNOCKED_DOWN = true, STUNNED = true, FROZEN = true, PETRIFIED = true,
+	CHARMED = true, FEAR = true, TAUNTED = true, SLEEPING = true,
+	CHICKEN = true, MADNESS = true,
+}
+local DC_CC_TYPES = {
+	KNOCKED_DOWN = true, INCAPACITATE = true, CHARMED = true,
+	FEAR = true, TAUNTED = true, MADNESS = true,
+}
+
+-- true se lo status e' un CC, per id vanilla o per tipo motore.
+local function DC_IsCCStatus(statusId)
+	if DC_CC_STATUS[statusId] then return true end
+	local ok, entry = pcall(Ext.Stats.Get, statusId)
+	if not ok or entry == nil then return false end
+	local okT, st = pcall(function() return entry.StatusType end)
+	if not okT or st == nil then return false end
+	return DC_CC_TYPES[tostring(st)] == true
+end
+
 local function RegisterEventHandlers()
+
+	-- PER-FIGHT: snapshot all'ingresso in combattimento, diff alla fine.
+	safeListener("ObjectEnteredCombat", 2, "after", function (object, combatId)
+		DC_OnEnteredCombat(object, combatId)
+	end)
+
+	safeListener("CombatEnded", 1, "after", function (combatId)
+		DC_OnCombatEnded(combatId)
+	end)
+
+	-- CC. CharacterStatusApplied scatta solo quando lo status si applica
+	-- DAVVERO: i CC respinti dall'armatura non passano di qui.
+	safeListener("CharacterStatusApplied", 3, "after", function (character, statusId, causee)
+		if not DC_IsCCStatus(tostring(statusId)) then return end
+		UpdateStats(causee, { CCInflicted = 1 })
+		UpdateStats(character, { CCReceived = 1 })
+	end)
 
 	safeListener("CharacterUsedItem", 2, "after", function (charGUID, itemGUID)
 		local item = Osi.GetTemplate(itemGUID)

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -86,6 +87,59 @@ _last_good: dict | None = None
 _last_mtime: float = 0.0
 
 
+# --- data reale delle fight --------------------------------------------------
+#
+# Il Lua della mod non ha un orologio (il sandbox dell'Extender non espone
+# os.time; il suo tempo e' monotonico, buono solo per le durate). La data di
+# ogni scontro la assegna quindi QUESTO server: la prima volta che una fight
+# compare nel file live riceve l'ora corrente, memorizzata su disco cosi' da
+# sopravvivere ai riavvii e valere anche rivedendo la run archiviata.
+
+FIGHT_TIMES_PATH = DATA_DIR / "fight_times.json"
+_fight_times: dict[str, int] | None = None
+
+
+def _load_fight_times() -> dict[str, int]:
+    global _fight_times
+    if _fight_times is None:
+        try:
+            _fight_times = json.loads(FIGHT_TIMES_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            _fight_times = {}
+    return _fight_times
+
+
+def _stamp_fights(data: dict, stamp_new: bool) -> None:
+    """Aggiunge 'when' (epoch) alle fight del payload.
+
+    stamp_new=True (file live): le fight mai viste ricevono l'ora corrente e
+    vengono ricordate. False (run archiviate): solo lookup, una fight mai
+    passata dal live su questa macchina resta senza data.
+    """
+    fights = data.get("fights")
+    if not isinstance(fights, list) or not fights:
+        return
+    times = _load_fight_times()
+    run_id = data.get("runId")
+    changed = False
+    for f in fights:
+        if not isinstance(f, dict):
+            continue
+        key = f"{run_id}|{f.get('combatId')}|{f.get('startedAt')}|{f.get('endedAt')}"
+        when = times.get(key)
+        if when is None and stamp_new:
+            when = int(time.time())
+            times[key] = when
+            changed = True
+        if when is not None:
+            f["when"] = when
+    if changed:
+        try:
+            FIGHT_TIMES_PATH.write_text(json.dumps(times), encoding="utf-8")
+        except OSError as exc:
+            print(f"[fights] impossibile salvare {FIGHT_TIMES_PATH.name}: {exc}")
+
+
 # Le run archiviate: la mod scrive una copia per partita in
 #   Osiris Data\DamageCounter\<profileId>\<runId>.json
 # accanto al file live. Da qui si possono rileggere partite vecchie.
@@ -142,6 +196,7 @@ def get_stats(run: str | None = None) -> JSONResponse:
         except (OSError, json.JSONDecodeError):
             return JSONResponse({"ok": False, "reason": "run-unreadable",
                                  "path": str(f)}, status_code=500)
+        _stamp_fights(data, stamp_new=False)
         return JSONResponse({"ok": True, "path": str(f), "archived": True,
                              "mtime": f.stat().st_mtime, "data": data})
 
@@ -172,6 +227,7 @@ def get_stats(run: str | None = None) -> JSONResponse:
             }
         )
 
+    _stamp_fights(data, stamp_new=True)
     _last_good = data
     _last_mtime = mtime
     return JSONResponse({"ok": True, "path": str(STATS_PATH), "mtime": mtime, "data": data})
@@ -185,6 +241,11 @@ def index() -> FileResponse:
 @app.get("/spells")
 def spells() -> FileResponse:
     return FileResponse(STATIC_DIR / "spells.html")
+
+
+@app.get("/fights")
+def fights() -> FileResponse:
+    return FileResponse(STATIC_DIR / "fights.html")
 
 
 # --- icone skill -------------------------------------------------------------

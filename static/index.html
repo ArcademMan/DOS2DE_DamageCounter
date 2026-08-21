@@ -15,7 +15,8 @@
   <header class="topbar">
     <div class="brand">
       <h1>DamageCounter</h1>
-      <span class="sub">Divinity: Original Sin 2</span>
+      <span class="sub">Divinity: Original Sin 2 &middot;
+        <a class="backlink" :href="fightsHref">fights</a></span>
     </div>
 
     <div class="runpick" v-if="runs.length" title="View a previous run">
@@ -34,80 +35,23 @@
   <main v-if="players.length">
 
     <section class="cards">
-      <article
+      <dc-player-card
         v-for="p in sorted"
         :key="p.guid"
-        class="card clickable"
-        :class="{ leader: p.guid === leaderGuid }"
-        title="Open spell breakdown"
-        @click="goSpells(p)">
-
-        <div class="card-head">
-          <span class="rank">{{ rankOf(p) }}</span>
-          <h2>{{ p.name }}</h2>
-        </div>
-
-        <div class="hero">
-          <div class="hero-value">{{ fmt(p.stats.DamageDone) }}</div>
-          <div class="hero-label">damage dealt</div>
-        </div>
-
-        <div class="bar" :title="share(p).toFixed(1) + '% of total'">
-          <div class="bar-fill" :style="{ width: share(p) + '%' }"></div>
-          <div
-            class="bar-summon"
-            :style="{ width: summonWidth(p) + '%' }"
-            :title="'from summons: ' + fmt(p.stats.SummonDamageDone)"></div>
-        </div>
-
-        <dl class="grid">
-          <div><dt>Taken</dt><dd>{{ fmt(p.stats.DamageTaken) }}</dd></div>
-          <div><dt>Hits</dt><dd>{{ fmt(p.stats.HitDone) }}</dd></div>
-          <div><dt>Avg/hit</dt><dd>{{ fmt(p.derived.avgDamage) }}</dd></div>
-          <div><dt>Max hit</dt><dd>{{ fmt(p.stats.HighestDamage) }}</dd></div>
-          <div><dt>Crits</dt><dd>{{ pct(p.derived.critRate) }}</dd></div>
-          <div><dt>Missed</dt><dd>{{ pct(p.derived.missRate) }}</dd></div>
-          <div><dt>Kills</dt><dd>{{ fmt(p.stats.Kills) }}</dd></div>
-          <div><dt>Deaths</dt><dd>{{ fmt(p.stats.Death) }}</dd></div>
-          <div><dt>Summons</dt><dd>{{ pct(p.derived.summonShare) }}</dd></div>
-        </dl>
-      </article>
+        :name="p.name"
+        :rank="rankOf(p)"
+        :damage="Number(p.stats.DamageDone) || 0"
+        :share-pct="share(p)"
+        :summon-pct="summonWidth(p)"
+        :summon-title="'from summons: ' + fmt(p.stats.SummonDamageDone)"
+        :leader="p.guid === leaderGuid"
+        clickable
+        :fields="cardFields(p)"
+        @select="goSpells(p)"></dc-player-card>
     </section>
 
-    <section class="table-wrap">
-      <div class="table-head">
-        <h3>Details</h3>
-        <label class="toggle">
-          <input type="checkbox" v-model="showZero">
-          <span>show zero rows</span>
-        </label>
-      </div>
+    <dc-stat-table :players="sorted"></dc-stat-table>
 
-      <table>
-        <thead>
-          <tr>
-            <th
-              class="metric"
-              @click="sortBy = null">Stat</th>
-            <th
-              v-for="p in sorted"
-              :key="p.guid"
-              @click="sortBy = 'name'">{{ p.name }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in rows" :key="row.key">
-            <td class="metric">{{ row.label }}</td>
-            <td
-              v-for="p in sorted"
-              :key="p.guid"
-              :class="{ best: row.values.length > 1 && row.best === p.guid, zero: !row.raw[p.guid] }">
-              {{ row.display[p.guid] }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
 
   </main>
 
@@ -126,6 +70,8 @@
 
 </div>
 
+<script src="/static/rows.js"></script>
+<script src="/static/components.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

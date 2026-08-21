@@ -17,6 +17,7 @@ static/icons/
 # stato locale
 config.json
 server_error.log
+fight_times.json
 __pycache__/
 *.pyc
 

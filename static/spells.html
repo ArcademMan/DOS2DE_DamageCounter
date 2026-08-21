@@ -42,41 +42,7 @@
         <span class="muted" v-else>no spell data yet &mdash; this save needs a few fights with the updated mod</span>
       </div>
 
-      <table v-if="skills.length">
-        <thead>
-          <tr>
-            <th class="metric">Spell</th>
-            <th>Uses</th>
-            <th>Hits</th>
-            <th>Damage</th>
-            <th>Avg/hit</th>
-            <th>Crits</th>
-            <th>Crit damage</th>
-            <th>Max hit</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="s in skills" :key="s.id">
-            <td class="metric" :title="s.id">
-              <img
-                v-if="s.icon"
-                class="skillicon"
-                :src="'/api/icon/' + encodeURIComponent(s.icon)"
-                alt=""
-                loading="lazy"
-                @error="$event.target.style.display = 'none'">
-              <span>{{ skillName(s) }}</span>
-            </td>
-            <td>{{ fmt(s.uses) }}</td>
-            <td>{{ fmt(s.hits) }}</td>
-            <td :class="{ zero: !s.damage }">{{ fmt(s.damage) }}</td>
-            <td>{{ s.hits ? fmt(s.damage / s.hits) : "–" }}</td>
-            <td :class="{ zero: !s.critHits }">{{ fmt(s.critHits) }}</td>
-            <td :class="{ zero: !s.critDamage }">{{ fmt(s.critDamage) }}</td>
-            <td>{{ fmt(s.maxHit) }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <dc-spells-table v-if="skills.length" :skills="skills"></dc-spells-table>
     </section>
 
   </main>
@@ -95,6 +61,8 @@
 
 </div>
 
+<script src="/static/rows.js"></script>
+<script src="/static/components.js"></script>
 <script src="/static/spells.js"></script>
 </body>
 </html>

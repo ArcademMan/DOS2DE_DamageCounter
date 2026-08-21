@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DamageCounter &mdash; Fights</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body>
+
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <h1 v-if="!selectedFight">Fights</h1>
+      <h1 v-else>Fight #{{ selectedFight.n }}</h1>
+      <span class="sub" v-if="!selectedFight">
+        <a class="backlink" :href="backHref">&larr; leaderboard</a>
+      </span>
+      <span class="sub" v-else>
+        <a class="backlink" :href="listHref">&larr; fights</a>
+        <template v-if="selectedFight.regionName"> &middot; {{ selectedFight.regionName }}</template>
+        <template v-if="selectedFight.whenText"> &middot; {{ selectedFight.whenText }}</template>
+        <template v-if="selectedFight.duration"> &middot; {{ selectedFight.duration }}</template>
+      </span>
+    </div>
+
+    <div class="status" :class="statusClass">
+      <span class="dot"></span>
+      <span>{{ statusText }}</span>
+    </div>
+  </header>
+
+  <!-- LISTA: righe compatte, il click porta alla pagina dello scontro. -->
+  <main v-if="!selectedFight && fights.length">
+    <section class="fightlist">
+      <a
+        v-for="f in fights"
+        :key="f.n"
+        class="fight"
+        :href="fightHref(f)">
+        <div class="fight-row">
+          <span class="fight-n">#{{ f.n }}</span>
+          <span class="fight-region" v-if="f.regionName">{{ f.regionName }}</span>
+          <span class="fight-dur">{{ f.whenText || f.duration }}</span>
+          <span class="fight-sum">
+            <span v-for="(p, i) in f.players" :key="p.guid" class="fight-p">
+              <template v-if="i > 0"> &middot; </template>
+              {{ p.name }} <b>{{ fmt(p.stats.DamageDone || 0) }}</b>
+            </span>
+          </span>
+        </div>
+        <div class="fight-vs" v-if="enemiesText(f)">
+          vs {{ enemiesText(f) }}
+        </div>
+      </a>
+    </section>
+  </main>
+
+  <!-- DETTAGLIO: pagina dedicata al singolo scontro. -->
+  <main v-else-if="selectedFight">
+
+    <p class="fight-vs-page" v-if="selectedFight.enemies.length">
+      <span>vs</span>
+      <span
+        v-for="e in selectedFight.enemies"
+        :key="e.name"
+        class="enemy-pill">{{ e.name }}{{ e.n > 1 ? " ×" + e.n : "" }}</span>
+    </p>
+
+    <section class="cards cards-compact">
+      <dc-player-card
+        v-for="p in selectedFight.players"
+        :key="p.guid"
+        :name="p.name"
+        :damage="Number(p.stats.DamageDone) || 0"
+        :share-pct="share(selectedFight, p)"
+        :leader="p.guid === fightLeader(selectedFight)"
+        :fields="cardFields(p)"></dc-player-card>
+    </section>
+
+    <dc-stat-table
+      :players="selectedFight.players"
+      subtitle="only stats that moved during this fight"></dc-stat-table>
+
+    <section class="table-wrap skills">
+      <div class="table-head">
+        <h3>Spells</h3>
+        <span class="muted" v-if="!playersWithSkills(selectedFight).length">
+          no spell data for this fight (recorded by an older version of the mod)
+        </span>
+        <span class="muted" v-else-if="spellsPlayer">
+          {{ spellsPlayer.skills.length }} spells this fight &middot; sorted by damage
+        </span>
+      </div>
+
+      <nav class="chips" v-if="playersWithSkills(selectedFight).length">
+        <button
+          v-for="p in playersWithSkills(selectedFight)"
+          :key="p.guid"
+          class="chip"
+          :class="{ active: spellsPlayer && p.guid === spellsPlayer.guid }"
+          @click="spellsGuid = p.guid">{{ p.name }}</button>
+      </nav>
+
+      <dc-spells-table v-if="spellsPlayer" :skills="spellsPlayer.skills"></dc-spells-table>
+    </section>
+
+  </main>
+
+  <main v-else class="empty">
+    <div class="empty-box">
+      <h2>No fights recorded yet</h2>
+      <p>Finish a combat encounter and the recap will appear here.
+         Fights are recorded by the updated mod: older saves start
+         counting from their next battle.</p>
+    </div>
+  </main>
+
+  <footer>
+    <span v-if="lastUpdate">updated {{ agoText }}</span>
+    <span class="muted" v-if="!selectedFight">last {{ fights.length }} fights &middot; oldest first</span>
+    <span class="muted" v-else>fight recap &middot; per-encounter deltas</span>
+  </footer>
+
+</div>
+
+<script src="/static/rows.js"></script>
+<script src="/static/components.js"></script>
+<script src="/static/fights.js"></script>
+</body>
+</html>

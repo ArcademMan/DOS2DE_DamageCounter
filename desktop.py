@@ -312,6 +312,7 @@ def main() -> int:
 
             nav_action("Leaderboard", "/")
             nav_action("Spells", "/spells")
+            nav_action("Fights", "/fights")
 
             reload_act = QAction("Reload", self)
             reload_act.triggered.connect(self.view.reload)

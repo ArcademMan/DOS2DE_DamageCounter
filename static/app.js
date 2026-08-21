@@ -1,65 +1,10 @@
 const { createApp, ref, computed, onMounted, onUnmounted } = Vue;
 
-// Righe della tabella di dettaglio. La chiave e' il nome del campo cosi' come
-// arriva dal Lua: se ne aggiungi uno nella mod, basta aggiungerlo qui.
-const ROWS = [
-  { key: "DamageDone", label: "Damage dealt" },
-  { key: "SummonDamageDone", label: "· from summons" },
-  { key: "AllyDamageDone", label: "· on allies (friendly fire)" },
-  { key: "AllyHitDone", label: "Hits on allies" },
-  { key: "AllyDamageTaken", label: "Damage taken from allies" },
-  { key: "SelfDamage", label: "Self-inflicted damage" },
-  { key: "DamageTaken", label: "Damage taken" },
-  { key: "HealingDone", label: "Healing done" },
-  { key: "HealingReceived", label: "Healing received" },
-  { key: "HighestDamage", label: "Biggest hit" },
-  { key: "HitDone", label: "Hits landed" },
-  { key: "HitTaken", label: "Hits taken" },
-  { key: "CriticalHits", label: "Critical hits" },
-  { key: "CriticalDmgDone", label: "Critical damage dealt" },
-  { key: "CriticalHitsTaken", label: "Criticals taken" },
-  { key: "CriticalDmgTaken", label: "Critical damage taken" },
-  { key: "Kills", label: "Kills" },
-  { key: "Death", label: "Deaths" },
-  { key: "AttacksMissed", label: "Attacks missed" },
-  { key: "MissedAttacks", label: "Attacks dodged" },
-  { key: "AttackBlocked", label: "Attacks blocked" },
-  { key: "BlockedAttack", label: "Successful blocks" },
-  { key: "DamageSkillDone", label: "Skill damage dealt" },
-  { key: "DamageSkillTaken", label: "Skill damage taken" },
-  { key: "SurfaceDamageDone", label: "Surface damage dealt" },
-  { key: "SurfaceDamageTaken", label: "Surface damage taken" },
-  { key: "StatusDamageDone", label: "Status damage dealt" },
-  { key: "StatusDamageTaken", label: "Status damage taken" },
-  { key: "ReflectedDamage", label: "Damage reflected onto attackers" },
-  { key: "DamageFromReflection", label: "Damage taken from reflection" },
-  { key: "SkillUsed", label: "Skills used" },
-  { key: "Resurrected", label: "Resurrections" },
-  { key: "LootedCorpses", label: "Corpses looted" },
-  { key: "DestroyedItem", label: "Items destroyed" },
-];
+// Elenco stats e formattazione vivono in rows.js; tabella dettagli, card
+// giocatore e bottoni-gruppo sono componenti condivisi (components.js).
+const formatNumber = dcFormatNumber;
 
-// Statistiche in cui un valore ALTO e' peggio: non vanno evidenziate come
-// primato. Senza questo, "morti" premierebbe chi muore di piu'.
-const LOWER_IS_BETTER = new Set([
-  "DamageTaken", "HitTaken", "CriticalHitsTaken", "CriticalDmgTaken",
-  "Death", "AttacksMissed", "DamageSkillTaken", "SurfaceDamageTaken",
-  "StatusDamageTaken", "DamageFromReflection",
-  "AllyDamageDone", "AllyHitDone", "AllyDamageTaken", "SelfDamage",
-]);
-
-// Sotto i 100k si mostra il numero per intero: "1.830" e' piu' informativo di
-// "1.8K", e a quelle cifre ci sta comodamente. L'abbreviazione serve solo
-// quando i numeri diventano lunghi al punto da sfondare la colonna.
-function formatNumber(n) {
-  const v = Number(n) || 0;
-  const a = Math.abs(v);
-  if (a < 100_000) return Math.round(v).toLocaleString("en-US");
-  if (a < 1_000_000) return Math.round(v / 1000).toLocaleString("en-US") + "K";
-  return (v / 1_000_000).toFixed(1) + "M";
-}
-
-createApp({
+const app = createApp({
   setup() {
     const intervalMs = 1000;
 
@@ -69,8 +14,6 @@ createApp({
     const path = ref("");
     const lastUpdate = ref(null);
     const now = ref(Date.now());
-    const showZero = ref(false);
-    const sortBy = ref("DamageDone");
 
     // "" = live file; otherwise "profileId/runId" of an archived run.
     const selectedRun = ref(new URLSearchParams(window.location.search).get("run") || "");
@@ -152,32 +95,6 @@ createApp({
 
     const leaderGuid = computed(() => (sorted.value[0] ? sorted.value[0].guid : null));
 
-    const rows = computed(() =>
-      ROWS.map((r) => {
-        const raw = {};
-        const display = {};
-        const values = [];
-        for (const p of players.value) {
-          const v = Number(p.stats[r.key]) || 0;
-          raw[p.guid] = v;
-          display[p.guid] = formatNumber(v);
-          values.push(v);
-        }
-        // Il primato ha senso solo se qualcuno ha davvero un valore E se i
-        // valori non sono tutti uguali: evidenziare "il migliore" quando sono
-        // tutti a 90 indica un vincitore che non esiste.
-        let best = null;
-        const distinct = new Set(values);
-        if (values.some((v) => v !== 0) && distinct.size > 1) {
-          const pick = LOWER_IS_BETTER.has(r.key) ? Math.min : Math.max;
-          const target = pick(...values);
-          const winner = players.value.find((p) => raw[p.guid] === target);
-          if (winner) best = winner.guid;
-        }
-        return { ...r, raw, display, values, best };
-      }).filter((r) => showZero.value || r.values.some((v) => v !== 0))
-    );
-
     function share(p) {
       if (!totalDamage.value) return 0;
       return ((Number(p.stats.DamageDone) || 0) / totalDamage.value) * 100;
@@ -232,20 +149,42 @@ createApp({
       return sorted.value.indexOf(p) + 1;
     }
 
+    // Griglia della card giocatore: etichetta + valore gia' formattato.
+    const pctText = (v) => (Number(v) || 0).toFixed(0) + "%";
+    function cardFields(p) {
+      return [
+        { label: "Taken", value: formatNumber(p.stats.DamageTaken) },
+        { label: "Hits", value: formatNumber(p.stats.HitDone) },
+        { label: "Avg/hit", value: formatNumber(p.derived.avgDamage) },
+        { label: "Max hit", value: formatNumber(p.stats.HighestDamage) },
+        { label: "Crits", value: pctText(p.derived.critRate) },
+        { label: "Missed", value: pctText(p.derived.missRate) },
+        { label: "Kills", value: formatNumber(p.stats.Kills) },
+        { label: "Deaths", value: formatNumber(p.stats.Death) },
+        { label: "Summons", value: pctText(p.derived.summonShare) },
+      ];
+    }
+
     function goSpells(p) {
       let href = "/spells?char=" + encodeURIComponent(p.guid);
       if (selectedRun.value) href += "&run=" + encodeURIComponent(selectedRun.value);
       window.location.href = href;
     }
 
+    const fightsHref = computed(() =>
+      selectedRun.value ? "/fights?run=" + encodeURIComponent(selectedRun.value) : "/fights"
+    );
+
     return {
-      players, sorted, rows, path, lastUpdate, intervalMs, showZero, sortBy,
+      players, sorted, path, lastUpdate, intervalMs,
       leaderGuid, statusText, statusClass, emptyTitle, emptyHint, agoText,
-      share, summonWidth, rankOf,
-      selectedRun, runs, runChanged, runLabel,
+      share, summonWidth, rankOf, cardFields,
+      selectedRun, runs, runChanged, runLabel, fightsHref,
       goSpells,
       fmt: formatNumber,
-      pct: (v) => (Number(v) || 0).toFixed(0) + "%",
     };
   },
-}).mount("#app");
+});
+
+dcRegisterComponents(app);
+app.mount("#app");
