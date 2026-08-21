@@ -16,7 +16,8 @@
     <div class="brand">
       <h1>DamageCounter</h1>
       <span class="sub">Divinity: Original Sin 2 &middot;
-        <a class="backlink" :href="fightsHref">fights</a></span>
+        <a class="backlink" :href="fightsHref">fights</a> &middot;
+        <a class="backlink" href="/settings">settings</a></span>
     </div>
 
     <div class="runpick" v-if="runs.length" title="View a previous run">
@@ -25,6 +26,8 @@
         <option v-for="r in runs" :key="r.run" :value="r.run">{{ runLabel(r) }}</option>
       </select>
     </div>
+
+    <dc-number-toggle></dc-number-toggle>
 
     <div class="status" :class="statusClass">
       <span class="dot"></span>
@@ -46,9 +49,15 @@
         :summon-title="'from summons: ' + fmt(p.stats.SummonDamageDone)"
         :leader="p.guid === leaderGuid"
         clickable
+        hideable
         :fields="cardFields(p)"
-        @select="goSpells(p)"></dc-player-card>
+        @select="goSpells(p)"
+        @hide="hideCharacter(p)"></dc-player-card>
     </section>
+
+    <div class="toast" v-if="toast">
+      {{ toast }} <a href="/settings">Settings</a>
+    </div>
 
     <dc-stat-table :players="sorted"></dc-stat-table>
 

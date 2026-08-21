@@ -35,14 +35,20 @@ body {
 
 /* --- barra superiore ---------------------------------------------------- */
 
+/* Titolo a sinistra, tutto il resto raggruppato a destra: con
+   space-between i comandi in mezzo (selettore run, numeri) si sparpagliavano
+   invece di stare insieme accanto allo stato. */
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+  gap: 12px;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--line);
   margin-bottom: 26px;
+}
+
+.topbar .brand {
+  margin-right: auto;
 }
 
 .brand h1 {
@@ -80,9 +86,6 @@ body {
 .status.bad  .dot { background: var(--bad); }
 
 /* Selettore run (Live / partite archiviate) nella barra in alto. */
-.runpick {
-  margin-left: auto;
-}
 
 .runpick select {
   max-width: 340px;
@@ -99,6 +102,76 @@ body {
 .runpick select:focus {
   border-color: var(--accent-soft);
   outline: none;
+}
+
+/* Occhio sulla card: nasconde il personaggio, non cancella niente. */
+.hidebtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  line-height: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.card:hover .hidebtn { opacity: 1; }
+
+.hidebtn:hover {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+}
+
+/* Avviso temporaneo dopo aver nascosto un personaggio. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 20px;
+  font-size: 13px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+  z-index: 10;
+}
+
+.toast a { color: var(--accent); }
+
+/* Pagina Settings. */
+.pad { padding: 14px 18px; }
+.rightcol { text-align: right; }
+.dim { color: var(--muted); }
+
+/* Interruttore numeri interi / abbreviati nella barra in alto. */
+.numtoggle {
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.numtoggle:hover {
+  border-color: var(--accent-soft);
+  color: var(--text);
+}
+
+.numtoggle.active {
+  border-color: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* Bottoni-gruppo sopra la tabella: filtrano le righe per categoria. */
@@ -162,6 +235,40 @@ body {
 
 .fight:hover {
   border-color: var(--accent-soft);
+}
+
+/* Scontro ancora in corso: si aggiorna da solo col polling. */
+.fight.live {
+  border-color: var(--good);
+  background: linear-gradient(180deg, rgba(91, 189, 122, 0.06), transparent 60%), var(--panel);
+}
+
+.livebadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--good);
+  border-radius: 999px;
+  color: var(--good);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  vertical-align: middle;
+}
+
+.livebadge .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+  animation: dc-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes dc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
 }
 
 .fight-row {

@@ -250,7 +250,7 @@ def main() -> int:
     class SettingsDialog(QDialog):
         def __init__(self, parent: QWidget | None = None) -> None:
             super().__init__(parent)
-            self.setWindowTitle("Settings")
+            self.setWindowTitle("Connection")
             self.setMinimumWidth(560)
 
             form = QFormLayout(self)
@@ -313,6 +313,7 @@ def main() -> int:
             nav_action("Leaderboard", "/")
             nav_action("Spells", "/spells")
             nav_action("Fights", "/fights")
+            nav_action("Settings", "/settings")
 
             reload_act = QAction("Reload", self)
             reload_act.triggered.connect(self.view.reload)
@@ -323,7 +324,10 @@ def main() -> int:
                 lambda: QDesktopServices.openUrl(QUrl(base_url)))
             bar.addAction(browser_act)
 
-            settings_act = QAction("Settings", self)
+            # Percorso del file e porta restano in un dialogo nativo, non
+            # nella pagina Settings: servono proprio quando il server non
+            # parte, e in quel caso nessuna pagina sarebbe raggiungibile.
+            settings_act = QAction("Connection", self)
             settings_act.triggered.connect(self.open_settings)
             bar.addAction(settings_act)
 

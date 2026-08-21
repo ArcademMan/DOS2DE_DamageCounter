@@ -100,8 +100,17 @@ local function InitializeStatTable()
 		-- Distinte dal HealCounter del motore, che conta tutta la partita e
 		-- non e' resettabile. Limite: i tick di rigenerazione (HEALING) non
 		-- passano da un HEAL per tick, quindi qui non compaiono.
+		--
+		-- HealingDone e' la cura EFFETTIVA (vitalita' davvero ripristinata);
+		-- la parte sprecata su chi era gia' pieno finisce in Overheal, e il
+		-- ripristino di armatura ha stat sue: sono tre cose diverse e
+		-- sommarle insieme gonfierebbe il numero che la gente legge.
 		HealingDone = 0,
 		HealingReceived = 0,
+		OverhealDone = 0,
+		OverhealReceived = 0,
+		ArmourRestoredDone = 0,
+		ArmourRestoredReceived = 0,
 		-- Fuoco amico. Sono sottoinsiemi di DamageDone / DamageTaken, non si
 		-- sommano a parte: servono a dire QUANTA parte del danno e' finita
 		-- addosso al gruppo invece che ai nemici.
@@ -690,23 +699,83 @@ end
 -- (L'equivalente Osiris, NRD_OnHeal, ha lo stesso problema di story di
 -- NRD_OnHit: mai referenziato, mai dispatchato.)
 dcHealsSeen = 0
+
+-- Quanto di una cura entra davvero, e quanto si spreca. BeforeStatusApply
+-- scatta PRIMA dell'applicazione, quindi i valori letti qui sono quelli
+-- pre-cura: la parte oltre il mancante e' overheal.
+--
+-- Coppie (corrente, massimo) per ogni tipo di cura. AllArmor/All non sono qui:
+-- toccano piu' barre insieme e non sapremmo come ripartirli, quindi il valore
+-- non viene tagliato (vedi sotto).
+local DC_HEAL_POOLS = {
+	Vitality      = { "CurrentVitality", "MaxVitality", "vitality" },
+	PhysicalArmor = { "CurrentArmor", "MaxArmor", "armour" },
+	MagicArmor    = { "CurrentMagicArmor", "MaxMagicArmor", "armour" },
+}
+
+-- Ritorna: quantita' effettiva, sprecata, e su quale barra ("vitality" o
+-- "armour"). Se la barra non e' leggibile si conta tutto come effettivo e si
+-- avvisa: meglio un numero generoso che una cura sparita in silenzio.
+local function DC_SplitHeal(targetObj, healType, amount)
+	local pool = DC_HEAL_POOLS[healType]
+	if pool == nil then
+		-- AllArmor tocca entrambe le armature, All tocca vitalita' E armature:
+		-- in nessuno dei due casi sappiamo come ripartire il valore, quindi non
+		-- lo tagliamo (niente overheal) e lo attribuiamo alla barra principale.
+		return amount, 0, (healType == "AllArmor") and "armour" or "vitality"
+	end
+	local okC, cur = pcall(function() return targetObj.Stats[pool[1]] end)
+	local okM, max = pcall(function() return targetObj.Stats[pool[2]] end)
+	if not okC or not okM or type(cur) ~= "number" or type(max) ~= "number" then
+		DC_WarnMissingField("Stats." .. pool[1] .. "/" .. pool[2])
+		return amount, 0, pool[3]
+	end
+	local effective = math.max(0, math.min(amount, max - cur))
+	return effective, amount - effective, pool[3]
+end
+
 local okHeal, errHeal = pcall(function()
 	Ext.Events.BeforeStatusApply:Subscribe(function (e)
 		local status = e.Status
 		if status == nil or tostring(status.StatusType) ~= "HEAL" then return end
-		-- Solo vitalita': i "heal" di armatura fisica/magica sono ripristini
-		-- di scudo e gonfierebbero il numero che la gente si aspetta.
-		if tostring(status.HealType) ~= "Vitality" then return end
+		local healType = tostring(status.HealType)
+		-- Vitalita' e armature sono contate separatamente; "Source" (punti
+		-- Fonte) non e' ne' l'una ne' l'altra e resta fuori.
+		if healType ~= "Vitality" and healType ~= "PhysicalArmor"
+			and healType ~= "MagicArmor" and healType ~= "AllArmor"
+			and healType ~= "All" then
+			return
+		end
 		local amount = tonumber(status.HealAmount) or 0
 		if amount <= 0 then return end
 		dcHealsSeen = dcHealsSeen + 1
+
 		local okT, targetObj = pcall(Ext.ServerEntity.GetGameObject, status.TargetHandle)
 		local okS, srcObj = pcall(Ext.ServerEntity.GetGameObject, status.StatusSourceHandle)
+
+		local effective, wasted, pool = amount, 0, "vitality"
+		if okT and targetObj ~= nil then
+			effective, wasted, pool = DC_SplitHeal(targetObj, healType, amount)
+		end
+
+		local updSrc, updTgt = {}, {}
+		if pool == "vitality" then
+			updSrc.HealingDone = effective
+			updTgt.HealingReceived = effective
+			if wasted > 0 then
+				updSrc.OverhealDone = wasted
+				updTgt.OverhealReceived = wasted
+			end
+		else
+			updSrc.ArmourRestoredDone = effective
+			updTgt.ArmourRestoredReceived = effective
+		end
+
 		if okS and srcObj ~= nil then
-			UpdateStats(srcObj.MyGuid, { HealingDone = amount })
+			UpdateStats(srcObj.MyGuid, updSrc)
 		end
 		if okT and targetObj ~= nil then
-			UpdateStats(targetObj.MyGuid, { HealingReceived = amount })
+			UpdateStats(targetObj.MyGuid, updTgt)
 		end
 	end)
 end)
@@ -1114,6 +1183,24 @@ local function DC_DiffSkills(curByS, snapByS)
 	return out
 end
 
+-- Numero progressivo dello scontro, assegnato all'INIZIO e conservato nel
+-- savegame. Serve un numero che non cambi mai: prima le fight erano numerate
+-- per posizione nella lista, quindi appena il tetto DC_MAX_FIGHTS scartava la
+-- piu' vecchia tutti i numeri scalavano e i link a una fight puntavano altrove.
+local function DC_NextFightSeq()
+	local n = tonumber(PersistentVars.FightSeq)
+	if n == nil then
+		-- Salvataggio creato prima della numerazione stabile: si riparte da
+		-- DOPO le fight gia' presenti, che il payload numera per posizione.
+		-- Partendo da zero, il primo scontro nuovo prenderebbe il numero 1,
+		-- gia' occupato da una fight vecchia.
+		n = #(PersistentVars.Fights or {})
+	end
+	n = n + 1
+	PersistentVars.FightSeq = n
+	return n
+end
+
 local function DC_OnEnteredCombat(objectGuid, combatId)
 	local guid = NormalizeGuid(objectGuid)
 	if guid == nil then return end
@@ -1145,7 +1232,7 @@ local function DC_OnEnteredCombat(objectGuid, combatId)
 
 	local snap = dcCombatSnapshots[combatId]
 	if snap == nil then
-		snap = { startedAt = DC_Now(), stats = {}, skills = {} }
+		snap = { startedAt = DC_Now(), stats = {}, skills = {}, seq = DC_NextFightSeq() }
 		dcCombatSnapshots[combatId] = snap
 	end
 	-- Alla prima entrata di un giocatore si fotografano TUTTI i personaggi
@@ -1170,13 +1257,12 @@ local function DC_OnEnteredCombat(objectGuid, combatId)
 	end
 end
 
-local function DC_OnCombatEnded(combatId)
-	local snap = dcCombatSnapshots[combatId]
-	dcCombatSnapshots[combatId] = nil
-	local enemySeen = dcCombatEnemies[combatId]
-	dcCombatEnemies[combatId] = nil
-	if snap == nil then return end
-
+-- Record di uno scontro: differenza tra le statistiche attuali e lo snapshot
+-- di inizio combattimento. Usata sia a combattimento finito (e salvata nel
+-- savegame) sia a combattimento IN CORSO (calcolata al volo a ogni export e
+-- spedita solo nel JSON, senza toccare il salvataggio).
+-- Ritorna nil se nessun giocatore ha ancora mosso un numero.
+local function DC_BuildFightRecord(combatId, snap, enemySeen)
 	local playersOut = {}
 	for guid, stats in pairs(PersistentVars.DamageStats or {}) do
 		if type(stats) == "table" then
@@ -1193,9 +1279,7 @@ local function DC_OnCombatEnded(combatId)
 			end
 		end
 	end
-	-- Scontro in cui nessun giocatore ha mosso un numero: non vale un posto
-	-- nella lista (e nel savegame).
-	if #playersOut == 0 then return end
+	if #playersOut == 0 then return nil end
 
 	table.sort(playersOut, function(a, b)
 		return (a.stats.DamageDone or 0) > (b.stats.DamageDone or 0)
@@ -1228,16 +1312,54 @@ local function DC_OnCombatEnded(combatId)
 	-- Niente data reale qui: il sandbox dell'Extender non espone os.time e
 	-- DC_Now() e' tempo monotonico (buono per la durata, non per "quando").
 	-- La data la assegna il server web al primo avvistamento della fight.
-	if type(PersistentVars.Fights) ~= "table" then PersistentVars.Fights = {} end
-	local fights = PersistentVars.Fights
-	table.insert(fights, {
+	return {
+		seq = snap.seq,
 		combatId = combatId,
 		startedAt = snap.startedAt,
 		endedAt = DC_Now(),
 		region = region,
 		players = playersOut,
 		enemies = enemies,
-	})
+	}
+end
+
+-- Fight in corso, per il JSON: stesso record, marcato come attivo. Non tocca
+-- PersistentVars, quindi il savegame resta pulito finche' lo scontro non
+-- finisce davvero.
+local function DC_ActiveFights()
+	local out = {}
+	for combatId, snap in pairs(dcCombatSnapshots) do
+		local rec = DC_BuildFightRecord(combatId, snap, dcCombatEnemies[combatId])
+		if rec ~= nil then
+			rec.active = true
+			table.insert(out, rec)
+		end
+	end
+	table.sort(out, function(a, b) return (a.seq or 0) < (b.seq or 0) end)
+	return out
+end
+
+local function DC_OnCombatEnded(combatId)
+	local snap = dcCombatSnapshots[combatId]
+	dcCombatSnapshots[combatId] = nil
+	local enemySeen = dcCombatEnemies[combatId]
+	dcCombatEnemies[combatId] = nil
+	if snap == nil then return end
+
+	local record = DC_BuildFightRecord(combatId, snap, enemySeen)
+	-- Scontro in cui nessun giocatore ha mosso un numero: non vale un posto
+	-- nella lista (e nel savegame). Il numero assegnato all'inizio viene
+	-- restituito, cosi' non lascia un buco nella numerazione.
+	if record == nil then
+		if PersistentVars.FightSeq == snap.seq then
+			PersistentVars.FightSeq = snap.seq - 1
+		end
+		return
+	end
+
+	if type(PersistentVars.Fights) ~= "table" then PersistentVars.Fights = {} end
+	local fights = PersistentVars.Fights
+	table.insert(fights, record)
 	while #fights > DC_MAX_FIGHTS do table.remove(fights, 1) end
 	if DC_MarkDirty then DC_MarkDirty() end
 end
@@ -1344,6 +1466,25 @@ local function DC_BuildPayload()
 			end
 		end
 	end
+	-- Scontri salvati + quelli ancora in corso. I salvati vengono ricopiati
+	-- (non modificati) perche' le fight vecchie, registrate quando il numero
+	-- era la posizione in lista, non hanno "seq": glielo assegniamo qui a
+	-- partire dalla posizione, senza riscrivere il savegame.
+	local fightsOut = {}
+	for i, f in ipairs(PersistentVars.Fights or {}) do
+		if f.seq == nil then
+			local copy = {}
+			for k, v in pairs(f) do copy[k] = v end
+			copy.seq = i
+			table.insert(fightsOut, copy)
+		else
+			table.insert(fightsOut, f)
+		end
+	end
+	for _, f in ipairs(DC_ActiveFights()) do
+		table.insert(fightsOut, f)
+	end
+
 	-- Il profilo "proprietario" della run e' quello dell'HOST: e' sulla sua
 	-- macchina che questo codice gira e che i file vengono scritti. Il primo
 	-- umano trovato resta solo come ripiego se l'host non e' identificabile
@@ -1372,9 +1513,9 @@ local function DC_BuildPayload()
 		hostGuid = hostGuid,
 		playerCount = #players,
 		players = players,
-		-- Ultimi scontri (max DC_MAX_FIGHTS), dal piu' vecchio al piu' recente:
-		-- la pagina /fights li mostra al contrario.
-		fights = PersistentVars.Fights or {},
+		-- Ultimi scontri (max DC_MAX_FIGHTS) piu' quelli IN CORSO, calcolati
+		-- al volo: la pagina /fights li mostra in ordine di numero.
+		fights = fightsOut,
 	}
 end
 
@@ -1715,6 +1856,13 @@ Ext.RegisterConsoleCommand("dcprobe", function()
 	for name in pairs(dcMissingHitFlags or {}) do missing = missing .. " " .. name end
 	if missing ~= "" then
 		Ext.Print("  FLAG COLPO NON TROVATI (contati come falsi!):" .. missing)
+	end
+	local missingFields = ""
+	for name in pairs(dcMissingDamageFields or {}) do
+		missingFields = missingFields .. " " .. name
+	end
+	if missingFields ~= "" then
+		Ext.Print("  CAMPI NON LEGGIBILI (statistiche derivate inaffidabili!):" .. missingFields)
 	end
 	if dcReflLog and #dcReflLog > 0 then
 		Ext.Print("  ultimi colpi riflessi (piu' recente per primo):")

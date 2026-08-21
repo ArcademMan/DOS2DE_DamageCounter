@@ -16,6 +16,10 @@ const DC_ROWS = [
   { key: "VitalityDamageTaken", label: "· to vitality", group: "defense" },
   { key: "HealingDone", label: "Healing done", group: "support" },
   { key: "HealingReceived", label: "Healing received", group: "support" },
+  { key: "OverhealDone", label: "· overhealing (wasted)", group: "support" },
+  { key: "OverhealReceived", label: "Overhealing received", group: "support" },
+  { key: "ArmourRestoredDone", label: "Armour restored", group: "support" },
+  { key: "ArmourRestoredReceived", label: "Armour restored on self", group: "support" },
   { key: "HighestDamage", label: "Biggest hit", group: "offense" },
   { key: "HitDone", label: "Hits landed", group: "offense" },
   { key: "HitTaken", label: "Hits taken", group: "defense" },
@@ -54,6 +58,8 @@ const DC_LOWER_IS_BETTER = new Set([
   "AllyDamageDone", "AllyHitDone", "AllyDamageTaken", "SelfDamage",
   "ArmourAbsorbed", "VitalityDamageTaken",
   "CCReceived",
+  // Cura sprecata su chi era gia' pieno: meno ce n'e', meglio si e' curato.
+  "OverhealDone",
 ]);
 
 // Righe dinamiche per tipo di danno, costruite dai dati davvero presenti
@@ -72,12 +78,26 @@ function dcTypeRows(statsList) {
   ]);
 }
 
+// Numeri per intero o abbreviati. La scelta e' un ref Vue, cosi' cambiarla
+// ridisegna tutto quello che formatta numeri senza ricaricare la pagina, e
+// vive in localStorage per restare tale al riavvio (app desktop compresa).
+// Nota: l'abbreviazione e' SOLO visualizzazione, nel JSON i valori sono
+// sempre interi completi.
+const DC_FULL_NUMBERS_KEY = "dc-full-numbers";
+const dcFullNumbers = Vue.ref(localStorage.getItem(DC_FULL_NUMBERS_KEY) === "1");
+
+function dcSetFullNumbers(on) {
+  dcFullNumbers.value = !!on;
+  localStorage.setItem(DC_FULL_NUMBERS_KEY, on ? "1" : "0");
+}
+
 // Sotto i 100k si mostra il numero per intero: "1.830" e' piu' informativo di
 // "1.8K", e a quelle cifre ci sta comodamente. L'abbreviazione serve solo
 // quando i numeri diventano lunghi al punto da sfondare la colonna.
 function dcFormatNumber(n) {
   const v = Number(n) || 0;
   const a = Math.abs(v);
+  if (dcFullNumbers.value) return Math.round(v).toLocaleString("en-US");
   if (a < 100_000) return Math.round(v).toLocaleString("en-US");
   if (a < 1_000_000) return Math.round(v / 1000).toLocaleString("en-US") + "K";
   return (v / 1_000_000).toFixed(1) + "M";

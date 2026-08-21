@@ -19,7 +19,7 @@ import re
 import time
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Body, FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -87,6 +87,78 @@ _last_good: dict | None = None
 _last_mtime: float = 0.0
 
 
+# --- personaggi nascosti ------------------------------------------------------
+#
+# Alcuni NPC entrano nel gruppo per una parte della storia e finiscono nelle
+# statistiche insieme ai protagonisti. Qui si possono nascondere: NON si
+# cancella niente, la mod continua a tracciarli e basta rimetterli visibili
+# dalla pagina Settings. Il filtro sta lato server, cosi' vale per tutte le
+# pagine e per l'app desktop allo stesso modo.
+#
+# Il registro dei nomi serve proprio perche' i nascosti spariscono dal
+# payload: senza, la pagina Settings non saprebbe come chiamarli.
+
+SETTINGS_PATH = DATA_DIR / "settings.json"
+_settings: dict | None = None
+
+
+def _load_settings() -> dict:
+    global _settings
+    if _settings is None:
+        try:
+            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        data.setdefault("hidden", [])
+        data.setdefault("known", {})   # guid -> ultimo nome visto
+        _settings = data
+    return _settings
+
+
+def _save_settings() -> None:
+    try:
+        SETTINGS_PATH.write_text(json.dumps(_load_settings(), indent=2),
+                                 encoding="utf-8")
+    except OSError as exc:
+        print(f"[settings] impossibile salvare {SETTINGS_PATH.name}: {exc}")
+
+
+def _apply_hidden(data: dict) -> None:
+    """Toglie dal payload i personaggi nascosti, aggiornando il registro nomi.
+
+    Filtra anche dentro le fight: un personaggio nascosto non deve ricomparire
+    nei riepiloghi degli scontri. Le percentuali (quota danni) si ricalcolano
+    da sole sulla pagina, sui soli personaggi rimasti, che e' il senso stesso
+    di nasconderli.
+    """
+    settings = _load_settings()
+    hidden = set(settings.get("hidden", []))
+    known = settings.get("known", {})
+    changed = False
+
+    for p in data.get("players", []) or []:
+        guid, name = p.get("guid"), p.get("name")
+        if guid and name and known.get(guid) != name:
+            known[guid] = name
+            changed = True
+    if changed:
+        _save_settings()
+
+    if not hidden:
+        return
+
+    data["players"] = [p for p in data.get("players", []) or []
+                       if p.get("guid") not in hidden]
+    data["playerCount"] = len(data["players"])
+
+    fights = data.get("fights")
+    if isinstance(fights, list):
+        for f in fights:
+            if isinstance(f, dict) and isinstance(f.get("players"), list):
+                f["players"] = [p for p in f["players"]
+                                if p.get("guid") not in hidden]
+
+
 # --- data reale delle fight --------------------------------------------------
 #
 # Il Lua della mod non ha un orologio (il sandbox dell'Extender non espone
@@ -109,6 +181,21 @@ def _load_fight_times() -> dict[str, int]:
     return _fight_times
 
 
+def _fight_keys(run_id, f: dict) -> tuple[str, str | None]:
+    """Chiave del timestamp, piu' l'eventuale chiave vecchia da migrare.
+
+    La chiave nuova usa il numero progressivo dello scontro, stabile per
+    definizione. Quella vecchia includeva endedAt, che per una fight IN CORSO
+    cambia a ogni export: con quella, ogni aggiornamento avrebbe creato una
+    voce nuova invece di ritrovare la sua.
+    """
+    legacy = f"{run_id}|{f.get('combatId')}|{f.get('startedAt')}|{f.get('endedAt')}"
+    seq = f.get("seq")
+    if seq is None:
+        return legacy, None
+    return f"{run_id}|seq{seq}", legacy
+
+
 def _stamp_fights(data: dict, stamp_new: bool) -> None:
     """Aggiunge 'when' (epoch) alle fight del payload.
 
@@ -125,8 +212,17 @@ def _stamp_fights(data: dict, stamp_new: bool) -> None:
     for f in fights:
         if not isinstance(f, dict):
             continue
-        key = f"{run_id}|{f.get('combatId')}|{f.get('startedAt')}|{f.get('endedAt')}"
+        # Una fight in corso e' per definizione "adesso": niente da ricordare,
+        # la data definitiva la prende quando il combattimento finisce.
+        if f.get("active"):
+            f["when"] = int(time.time())
+            continue
+        key, legacy = _fight_keys(run_id, f)
         when = times.get(key)
+        if when is None and legacy is not None and legacy in times:
+            when = times.pop(legacy)   # migrazione dalla chiave vecchia
+            times[key] = when
+            changed = True
         if when is None and stamp_new:
             when = int(time.time())
             times[key] = when
@@ -197,6 +293,7 @@ def get_stats(run: str | None = None) -> JSONResponse:
             return JSONResponse({"ok": False, "reason": "run-unreadable",
                                  "path": str(f)}, status_code=500)
         _stamp_fights(data, stamp_new=False)
+        _apply_hidden(data)
         return JSONResponse({"ok": True, "path": str(f), "archived": True,
                              "mtime": f.stat().st_mtime, "data": data})
 
@@ -230,6 +327,7 @@ def get_stats(run: str | None = None) -> JSONResponse:
     _stamp_fights(data, stamp_new=True)
     _last_good = data
     _last_mtime = mtime
+    _apply_hidden(data)
     return JSONResponse({"ok": True, "path": str(STATS_PATH), "mtime": mtime, "data": data})
 
 
@@ -246,6 +344,46 @@ def spells() -> FileResponse:
 @app.get("/fights")
 def fights() -> FileResponse:
     return FileResponse(STATIC_DIR / "fights.html")
+
+
+@app.get("/settings")
+def settings_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "settings.html")
+
+
+_GUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+
+@app.get("/api/settings")
+def get_settings() -> JSONResponse:
+    s = _load_settings()
+    hidden = set(s.get("hidden", []))
+    known = s.get("known", {})
+    chars = [{"guid": g, "name": n, "hidden": g in hidden}
+             for g, n in known.items()]
+    # Un nascosto di cui si e' perso il nome resta comunque in elenco, altrimenti
+    # non ci sarebbe piu' modo di rimetterlo visibile.
+    for g in hidden:
+        if g not in known:
+            chars.append({"guid": g, "name": g, "hidden": True})
+    chars.sort(key=lambda c: c["name"].lower())
+    return JSONResponse({"ok": True, "characters": chars,
+                         "statsPath": str(STATS_PATH)})
+
+
+@app.post("/api/hidden")
+def set_hidden(payload: dict = Body(...)) -> JSONResponse:
+    guid = payload.get("guid")
+    if not isinstance(guid, str) or not _GUID_RE.fullmatch(guid):
+        return JSONResponse({"ok": False, "reason": "bad-guid"}, status_code=400)
+    s = _load_settings()
+    hidden = [g for g in s.get("hidden", []) if g != guid]
+    if payload.get("hidden"):
+        hidden.append(guid)
+    s["hidden"] = hidden
+    _save_settings()
+    return JSONResponse({"ok": True, "hidden": hidden})
 
 
 # --- icone skill -------------------------------------------------------------

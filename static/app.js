@@ -149,6 +149,37 @@ const app = createApp({
       return sorted.value.indexOf(p) + 1;
     }
 
+    // Cestino sulla card: nasconde, non cancella. Il filtro sta sul server,
+    // quindi al prossimo poll (entro un secondo) il personaggio sparisce da
+    // tutte le pagine, e da Settings si rimette visibile.
+    const toast = ref(null);
+    let toastTimer = null;
+
+    async function hideCharacter(p) {
+      try {
+        const res = await fetch("/api/hidden", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ guid: p.guid, hidden: true }),
+        });
+        const body = await res.json();
+        if (!body.ok) {
+          showToast("Could not hide " + p.name + ": " + (body.reason || "refused"));
+          return;
+        }
+        players.value = players.value.filter((x) => x.guid !== p.guid);
+        showToast(p.name + " hidden. Bring it back from");
+      } catch (e) {
+        showToast("Could not hide " + p.name + ": server unreachable");
+      }
+    }
+
+    function showToast(text) {
+      toast.value = text;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => (toast.value = null), 6000);
+    }
+
     // Griglia della card giocatore: etichetta + valore gia' formattato.
     const pctText = (v) => (Number(v) || 0).toFixed(0) + "%";
     function cardFields(p) {
@@ -179,6 +210,7 @@ const app = createApp({
       players, sorted, path, lastUpdate, intervalMs,
       leaderGuid, statusText, statusClass, emptyTitle, emptyHint, agoText,
       share, summonWidth, rankOf, cardFields,
+      hideCharacter, toast,
       selectedRun, runs, runChanged, runLabel, fightsHref,
       goSpells,
       fmt: formatNumber,

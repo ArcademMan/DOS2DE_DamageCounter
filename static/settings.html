@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DamageCounter &mdash; Settings</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body>
+
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <h1>Settings</h1>
+      <span class="sub"><a class="backlink" href="/">&larr; leaderboard</a></span>
+    </div>
+
+    <div class="status" :class="statusClass">
+      <span class="dot"></span>
+      <span>{{ statusText }}</span>
+    </div>
+  </header>
+
+  <main>
+
+    <section class="table-wrap">
+      <div class="table-head">
+        <h3>Characters</h3>
+        <span class="muted">
+          hidden characters keep being tracked, they are only left out of the pages
+        </span>
+      </div>
+
+      <table v-if="characters.length">
+        <thead>
+          <tr>
+            <th class="metric">Character</th>
+            <th class="rightcol">Shown</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="c in characters" :key="c.guid">
+            <td class="metric" :title="c.guid">
+              <span :class="{ dim: c.hidden }">{{ c.name }}</span>
+            </td>
+            <td class="rightcol">
+              <button
+                class="chip"
+                :class="{ active: !c.hidden }"
+                @click="toggle(c)">{{ c.hidden ? "Hidden" : "Visible" }}</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p v-else class="pad muted">
+        No characters seen yet. They appear here once the mod exports its first data.
+      </p>
+    </section>
+
+    <section class="table-wrap">
+      <div class="table-head">
+        <h3>Stats file</h3>
+      </div>
+      <p class="pad"><code>{{ statsPath }}</code></p>
+    </section>
+
+  </main>
+
+  <footer>
+    <span class="muted">nothing is ever deleted: hiding only affects what the pages show</span>
+  </footer>
+
+</div>
+
+<script src="/static/settings.js"></script>
+</body>
+</html>

@@ -15,7 +15,10 @@
   <header class="topbar">
     <div class="brand">
       <h1 v-if="!selectedFight">Fights</h1>
-      <h1 v-else>Fight #{{ selectedFight.n }}</h1>
+      <h1 v-else>
+        Fight #{{ selectedFight.n }}
+        <span class="livebadge" v-if="selectedFight.active"><span class="dot"></span>in progress</span>
+      </h1>
       <span class="sub" v-if="!selectedFight">
         <a class="backlink" :href="backHref">&larr; leaderboard</a>
       </span>
@@ -26,6 +29,8 @@
         <template v-if="selectedFight.duration"> &middot; {{ selectedFight.duration }}</template>
       </span>
     </div>
+
+    <dc-number-toggle></dc-number-toggle>
 
     <div class="status" :class="statusClass">
       <span class="dot"></span>
@@ -40,11 +45,13 @@
         v-for="f in fights"
         :key="f.n"
         class="fight"
+        :class="{ live: f.active }"
         :href="fightHref(f)">
         <div class="fight-row">
           <span class="fight-n">#{{ f.n }}</span>
+          <span class="livebadge" v-if="f.active"><span class="dot"></span>in progress</span>
           <span class="fight-region" v-if="f.regionName">{{ f.regionName }}</span>
-          <span class="fight-dur">{{ f.whenText || f.duration }}</span>
+          <span class="fight-dur">{{ f.active ? f.duration : (f.whenText || f.duration) }}</span>
           <span class="fight-sum">
             <span v-for="(p, i) in f.players" :key="p.guid" class="fight-p">
               <template v-if="i > 0"> &middot; </template>
@@ -110,7 +117,7 @@
 
   </main>
 
-  <main v-else class="empty">
+  <main v-else-if="!fights.length" class="empty">
     <div class="empty-box">
       <h2>No fights recorded yet</h2>
       <p>Finish a combat encounter and the recap will appear here.

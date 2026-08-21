@@ -18,6 +18,7 @@ static/icons/
 config.json
 server_error.log
 fight_times.json
+settings.json
 __pycache__/
 *.pyc
 

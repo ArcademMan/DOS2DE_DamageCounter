@@ -50,11 +50,13 @@ const app = createApp({
       clearInterval(clock);
     });
 
-    // Ordine cronologico: #1 in alto, l'ultima fight in fondo.
+    // Ordine cronologico: #1 in alto, l'ultima fight in fondo. Il numero
+    // arriva dalla mod (seq) ed e' stabile: non cambia quando le fight
+    // vecchie escono dalla lista.
     const fights = computed(() =>
       rawFights.value.map((f, i) => ({
         ...f,
-        n: i + 1,
+        n: f.seq || i + 1,
         players: (Array.isArray(f.players) ? f.players : []).map((p) => ({
           ...p,
           skills: Array.isArray(p.skills) ? p.skills : [],
@@ -147,6 +149,10 @@ const app = createApp({
       return Math.floor(s / 60) + "m " + (s % 60) + "s";
     }
 
+    // Una fight in corso resta selezionata anche mentre i dati cambiano:
+    // la pagina si aggiorna da sola col polling gia' attivo.
+    const liveFight = computed(() => fights.value.find((f) => f.active) || null);
+
     function enemiesText(f) {
       if (!f.enemies.length) return "";
       return f.enemies
@@ -201,7 +207,7 @@ const app = createApp({
     });
 
     return {
-      fights, selectedFight, fightHref, listHref, enemiesText,
+      fights, selectedFight, fightHref, listHref, enemiesText, liveFight,
       derived, share, fightLeader, playersWithSkills, cardFields,
       spellsGuid, spellsPlayer,
       statusText, statusClass, backHref, agoText,

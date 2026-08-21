@@ -30,8 +30,11 @@ function dcRegisterComponents(app) {
       rank: { type: Number, default: 0 },
       leader: { type: Boolean, default: false },
       clickable: { type: Boolean, default: false },
+      // Cestino: non cancella niente, nasconde il personaggio dalle pagine
+      // (si rimette visibile da Settings).
+      hideable: { type: Boolean, default: false },
     },
-    emits: ["select"],
+    emits: ["select", "hide"],
     computed: {
       heroText() { return dcFormatNumber(this.damage); },
     },
@@ -44,6 +47,19 @@ function dcRegisterComponents(app) {
         <div class="card-head">
           <span v-if="rank" class="rank">{{ rank }}</span>
           <h2>{{ name }}</h2>
+          <button
+            v-if="hideable"
+            class="hidebtn"
+            title="Hide this character from the pages. Nothing is deleted, you can bring it back from Settings."
+            @click.stop="$emit('hide')">
+            <!-- occhio sbarrato: l'azione nasconde, non cancella -->
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                 stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>
+          </button>
         </div>
         <div class="hero">
           <div class="hero-value">{{ heroText }}</div>
@@ -156,6 +172,24 @@ function dcRegisterComponents(app) {
           </table>
         </section>
       </div>`,
+  });
+
+  // Interruttore numeri interi / abbreviati, da mettere nella barra in alto.
+  app.component("dc-number-toggle", {
+    computed: {
+      full() { return dcFullNumbers.value; },
+    },
+    methods: {
+      toggle() { dcSetFullNumbers(!dcFullNumbers.value); },
+    },
+    template: `
+      <button
+        class="numtoggle"
+        :class="{ active: full }"
+        :title="full
+          ? 'Full numbers. Click to abbreviate large values.'
+          : 'Large values are abbreviated. Click to show full numbers.'"
+        @click="toggle">{{ full ? "1,234,567" : "1.2M" }}</button>`,
   });
 
   app.component("dc-spells-table", {
