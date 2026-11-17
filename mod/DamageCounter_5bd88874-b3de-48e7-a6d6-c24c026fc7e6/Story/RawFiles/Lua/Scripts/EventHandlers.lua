@@ -1558,6 +1558,21 @@ function DC_MarkDirty()
 	dcDirty = true
 end
 
+-- Azzeramento completo, usato dal comando console e dal pannello F7.
+-- Gli scontri IN CORSO vengono scartati: il loro snapshot e' una fotografia
+-- dei contatori prima del reset, e la differenza con i contatori azzerati
+-- darebbe numeri negativi. La numerazione (FightSeq) NON riparte: il server
+-- web data gli scontri per numero, e un nuovo n.1 erediterebbe la data del
+-- vecchio n.1. L'export parte subito, cosi' la pagina web si svuota insieme
+-- al pannello invece di aspettare il prossimo colpo.
+local function DC_ResetAll(reason)
+	ResetStats()
+	for id in pairs(dcCombatSnapshots) do dcCombatSnapshots[id] = nil end
+	for id in pairs(dcCombatEnemies) do dcCombatEnemies[id] = nil end
+	DC_MarkDirty()
+	DC_Export(reason or "reset")
+end
+
 local function DC_TickExport()
 	if not dcDirty then return end
 	if DC_Now() - dcLastExport < DC_EXPORT_MIN_INTERVAL then return end
@@ -1570,45 +1585,48 @@ end
 -- cosi' pannello e pagina mostrano sempre gli stessi numeri.
 
 local DC_BOARD_ROWS = {
-	{ "DamageDone",           "Damage dealt" },
-	{ "SummonDamageDone",     "- from summons" },
-	{ "AllyDamageDone",       "- on allies (friendly fire)" },
-	{ "AllyHitDone",          "Hits on allies" },
-	{ "AllyDamageTaken",      "Damage taken from allies" },
-	{ "SelfDamage",           "Self-inflicted damage" },
-	{ "DamageTaken",          "Damage taken" },
-	{ "HealingDone",          "Healing done" },
-	{ "HealingReceived",      "Healing received" },
-	{ "HighestDamage",        "Biggest hit" },
-	{ "HitDone",              "Hits landed" },
-	{ "HitTaken",             "Hits taken" },
-	{ "CriticalHits",         "Critical hits" },
-	{ "CriticalDmgDone",      "Critical damage dealt" },
-	{ "CriticalHitsTaken",    "Criticals taken" },
-	{ "CriticalDmgTaken",     "Critical damage taken" },
-	{ "Kills",                "Kills" },
-	{ "Death",                "Deaths" },
-	{ "AttacksMissed",        "Attacks missed" },
-	{ "MissedAttacks",        "Attacks dodged" },
-	{ "AttackBlocked",        "Attacks blocked" },
-	{ "BlockedAttack",        "Successful blocks" },
-	{ "DamageSkillUsed",      "Damage skills used" },
-	{ "DamageSkillDone",      "Skill damage dealt" },
-	{ "DamageSkillTaken",     "Skill damage taken" },
-	{ "SurfaceDamageDone",    "Surface damage dealt" },
-	{ "SurfaceDamageTaken",   "Surface damage taken" },
-	{ "SurfaceHitDone",       "Surface hits dealt" },
-	{ "SurfaceHitTaken",      "Surface hits taken" },
-	{ "StatusDamageDone",     "Status damage dealt" },
-	{ "StatusDamageTaken",    "Status damage taken" },
-	{ "StatusHitDone",        "Status hits dealt" },
-	{ "StatusHitTaken",       "Status hits taken" },
-	{ "ReflectedDamage",      "Damage reflected onto attackers" },
-	{ "DamageFromReflection", "Damage taken from reflection" },
-	{ "SkillUsed",            "Skills used" },
-	{ "Resurrected",          "Resurrections" },
-	{ "LootedCorpses",        "Corpses looted" },
-	{ "DestroyedItem",        "Items destroyed" },
+	-- chiave, etichetta lunga, etichetta CORTA: con tre o piu'
+	-- giocatori le etichette lunghe mangiano lo spazio delle colonne,
+	-- quindi il pannello passa alla versione corta.
+	{ "DamageDone",           "Damage dealt",                    "Damage" },
+	{ "SummonDamageDone",     "- from summons",                  "- summons" },
+	{ "AllyDamageDone",       "- on allies (friendly fire)",     "- on allies" },
+	{ "AllyHitDone",          "Hits on allies",                  "Ally hits" },
+	{ "AllyDamageTaken",      "Damage taken from allies",        "Dmg by allies" },
+	{ "SelfDamage",           "Self-inflicted damage",           "Self dmg" },
+	{ "DamageTaken",          "Damage taken",                    "Taken" },
+	{ "HealingDone",          "Healing done",                    "Healing" },
+	{ "HealingReceived",      "Healing received",                "Healed" },
+	{ "HighestDamage",        "Biggest hit",                     "Best hit" },
+	{ "HitDone",              "Hits landed",                     "Hits" },
+	{ "HitTaken",             "Hits taken",                      "Hits taken" },
+	{ "CriticalHits",         "Critical hits",                   "Crits" },
+	{ "CriticalDmgDone",      "Critical damage dealt",           "Crit dmg" },
+	{ "CriticalHitsTaken",    "Criticals taken",                 "Crits taken" },
+	{ "CriticalDmgTaken",     "Critical damage taken",           "Crit dmg taken" },
+	{ "Kills",                "Kills",                           "Kills" },
+	{ "Death",                "Deaths",                          "Deaths" },
+	{ "AttacksMissed",        "Attacks missed",                  "Missed" },
+	{ "MissedAttacks",        "Attacks dodged",                  "Dodged" },
+	{ "AttackBlocked",        "Attacks blocked",                 "Blocked" },
+	{ "BlockedAttack",        "Successful blocks",               "Blocks" },
+	{ "DamageSkillUsed",      "Damage skills used",              "Dmg skills" },
+	{ "DamageSkillDone",      "Skill damage dealt",              "Skill dmg" },
+	{ "DamageSkillTaken",     "Skill damage taken",              "Skill dmg taken" },
+	{ "SurfaceDamageDone",    "Surface damage dealt",            "Surface dmg" },
+	{ "SurfaceDamageTaken",   "Surface damage taken",            "Surface taken" },
+	{ "SurfaceHitDone",       "Surface hits dealt",              "Surface hits" },
+	{ "SurfaceHitTaken",      "Surface hits taken",              "Surf. hits taken" },
+	{ "StatusDamageDone",     "Status damage dealt",             "Status dmg" },
+	{ "StatusDamageTaken",    "Status damage taken",             "Status taken" },
+	{ "StatusHitDone",        "Status hits dealt",               "Status hits" },
+	{ "StatusHitTaken",       "Status hits taken",               "Stat. hits taken" },
+	{ "ReflectedDamage",      "Damage reflected onto attackers", "Reflected" },
+	{ "DamageFromReflection", "Damage taken from reflection",    "Dmg by reflect" },
+	{ "SkillUsed",            "Skills used",                     "Skills" },
+	{ "Resurrected",          "Resurrections",                   "Resurrects" },
+	{ "LootedCorpses",        "Corpses looted",                  "Corpses" },
+	{ "DestroyedItem",        "Items destroyed",                 "Items broken" },
 }
 
 local function DC_BoardText()
@@ -1665,6 +1683,546 @@ Ext.RegisterNetListener("DC_RequestBoard", function(_, _, user)
 		if pcall(Ext.Net.PostMessageToUser, user, "DC_ShowBoard", text) then return end
 	end
 	pcall(Ext.Net.BroadcastMessage, "DC_ShowBoard", text)
+end)
+
+
+-- ---------------------------------------------------------------------------
+-- Pannello F7 a pagine (DC_RequestBoard2 -> DC_ShowBoard2).
+--
+-- Il vecchio DC_RequestBoard resta: manda un blocco di testo unico per la
+-- finestrella msgBox. Questo invece manda una STRUTTURA di pagine gia'
+-- formattate (stringhe pronte), e il client decide solo come disporle nel
+-- pannello. Cosi' cambiare contenitore (log, diario, msgBox) non tocca il
+-- server, e cambiare le statistiche non tocca il client.
+--
+-- Forma del messaggio (JSON):
+--   { updatedAt = <ms>, pages = { {
+--        id = "team", title = "Party",
+--        sections = { { title = "...", header = {"", "Ifan", "Lohse"},
+--                       rows = { { label = "Damage dealt",
+--                                  values = { "12.4K", "9.1K" } } } } } } } }
+
+local DC_DERIVED_ROWS = {
+	{ "avgDamage",   "Avg damage/hit", "%.0f" },
+	{ "critRate",    "Crit rate",      "%.0f%%" },
+	{ "missRate",    "Miss rate",      "%.0f%%" },
+	{ "kda",         "Kills/deaths",   "%.1f" },
+	{ "summonShare", "Summon share",   "%.0f%%" },
+}
+
+-- Quante pagine di dettaglio al massimo: una per giocatore piu' gli scontri.
+local DC_BOARD_MAX_SKILLS = 20
+local DC_BOARD_MAX_FIGHTS = 15
+
+-- Reset dal pannello in due passi: il primo click arma, il secondo conferma.
+-- Vive solo in memoria e si spegne a ogni riapertura del pannello (F7).
+local dcResetArmed = false
+
+local function DC_FmtDuration(ms)
+	local s = math.floor((tonumber(ms) or 0) / 1000)
+	if s < 0 then s = 0 end
+	if s < 60 then return string.format("%ds", s) end
+	return string.format("%dm %02ds", math.floor(s / 60), s % 60)
+end
+
+-- Chi mostrare nel pannello.
+--
+-- Il file sta in Osiris Data e si modifica con un editor di testo, senza
+-- passare dalla console: hidePlayers elenca nomi (o GUID) da non mostrare,
+-- hideInactive nasconde chi non ha inflitto danni, curato, colpito o ucciso,
+-- cioe' i compagni che stanno solo appresso al gruppo.
+local DC_UI_CONFIG_FILE = "DamageCounter_UI_config.json"
+
+local function DC_BoardConfig()
+	-- Stessa prudenza di DC_WriteFile: l'API dei file ha due nomi a seconda
+	-- della versione dell'Extender.
+	local loader = nil
+	if Ext.IO ~= nil and type(Ext.IO.LoadFile) == "function" then
+		loader = Ext.IO.LoadFile
+	elseif type(Ext.LoadFile) == "function" then
+		loader = Ext.LoadFile
+	end
+
+	local ok, raw = false, nil
+	if loader ~= nil then
+		ok, raw = pcall(loader, DC_UI_CONFIG_FILE)
+	end
+	if ok and type(raw) == "string" and raw ~= "" then
+		local okJ, cfg = pcall(Ext.Json.Parse, raw)
+		if okJ and type(cfg) == "table" then return cfg end
+	end
+	-- Prima volta: si scrive un file di esempio, cosi' c'e' qualcosa da
+	-- modificare invece di un formato da indovinare.
+	local sample = table.concat({
+		"{",
+		"    \"_help\": \"hidePlayers: nomi o GUID da non mostrare nel pannello F7.",
+		" hideInactive: nasconde chi non ha danni, cure, colpi ne' uccisioni.\",",
+		"    \"hideInactive\": true,",
+		"    \"hidePlayers\": []",
+		"}",
+	}, "\n")
+	pcall(DC_WriteFile, DC_UI_CONFIG_FILE, sample)
+	return { hideInactive = true, hidePlayers = {} }
+end
+
+local function DC_SaveBoardConfig(cfg)
+	local okJ, json = pcall(Ext.Json.Stringify, cfg)
+	if okJ and json ~= nil then
+		pcall(DC_WriteFile, DC_UI_CONFIG_FILE, json)
+	end
+end
+
+-- Restituisce i giocatori da mostrare e l'elenco di quelli esclusi.
+local function DC_FilterPlayers(players, cfg)
+	local hidden = {}
+	for _, n in ipairs(cfg.hidePlayers or {}) do
+		hidden[string.lower(tostring(n))] = true
+	end
+
+	local out, skipped = {}, {}
+	for _, p in ipairs(players) do
+		local skip = hidden[string.lower(tostring(p.name))] == true
+			or hidden[string.lower(tostring(p.guid))] == true
+		if not skip and cfg.hideInactive ~= false then
+			local s = p.stats or {}
+			local contributed = (s.DamageDone or 0) + (s.HealingDone or 0) +
+				(s.HitDone or 0) + (s.Kills or 0)
+			if contributed == 0 then skip = true end
+		end
+		if skip then
+			table.insert(skipped, p.name)
+		else
+			table.insert(out, p)
+		end
+	end
+
+	-- Se il filtro svuota la tabella non serve a nessuno: meglio mostrare tutto.
+	if #out == 0 then return players, {} end
+	return out, skipped
+end
+
+-- Pagina 1: tutti i giocatori affiancati, una riga per statistica.
+local function DC_PageTeam(players, skipped)
+	local header = { "" }
+	for _, p in ipairs(players) do table.insert(header, p.name) end
+
+	-- Con tre o piu' colonne le etichette lunghe rubano lo spazio ai numeri:
+	-- da li' in avanti si usa la versione corta.
+	local short = #players >= 3
+
+	local rows = {}
+	for _, row in ipairs(DC_BOARD_ROWS) do
+		local vals, any = {}, false
+		for _, p in ipairs(players) do
+			local v = p.stats[row[1]] or 0
+			if v ~= 0 then any = true end
+			table.insert(vals, formatNumber(v))
+		end
+		-- Riga a zero per tutti: non porta informazione, occupa spazio.
+		if any then
+			local label = row[2]
+			if short and row[3] ~= nil then label = row[3] end
+			table.insert(rows, { label = label, values = vals })
+		end
+	end
+
+	local derived = {}
+	for _, d in ipairs(DC_DERIVED_ROWS) do
+		local vals = {}
+		for _, p in ipairs(players) do
+			table.insert(vals, string.format(d[3], (p.derived or {})[d[1]] or 0))
+		end
+		table.insert(derived, { label = d[2], values = vals })
+	end
+
+	local sections = {
+		{ title = "Totals",  header = header, rows = rows },
+		{ title = "Ratios",  header = header, rows = derived },
+	}
+
+	-- Chi e' stato escluso viene detto, altrimenti sembra un dato mancante.
+	if skipped ~= nil and #skipped > 0 then
+		local rowsHidden = {}
+		for _, name in ipairs(skipped) do
+			table.insert(rowsHidden, { label = tostring(name), values = {} })
+		end
+		table.insert(sections, {
+			title = "Hidden (see DamageCounter_UI_config.json)",
+			header = { "" },
+			rows = rowsHidden,
+		})
+	end
+
+	return {
+		id = "team",
+		title = "Party",
+		group = "Party",
+		sections = sections,
+	}
+end
+
+-- Una pagina per giocatore: riepilogo in colonna + dettaglio per abilita'.
+local function DC_PagePlayer(p, index)
+	local sum = {}
+	for _, row in ipairs(DC_BOARD_ROWS) do
+		local v = p.stats[row[1]] or 0
+		if v ~= 0 then
+			table.insert(sum, { label = row[2], values = { formatNumber(v) } })
+		end
+	end
+	for _, d in ipairs(DC_DERIVED_ROWS) do
+		table.insert(sum, {
+			label = d[2],
+			values = { string.format(d[3], (p.derived or {})[d[1]] or 0) },
+		})
+	end
+
+	local skillRows = {}
+	for i, s in ipairs(p.skills or {}) do
+		if i > DC_BOARD_MAX_SKILLS then break end
+		table.insert(skillRows, {
+			label = s.name or s.id,
+			values = {
+				formatNumber(s.uses or 0),
+				formatNumber(s.hits or 0),
+				formatNumber(s.damage or 0),
+				formatNumber(s.critHits or 0),
+				formatNumber(s.maxHit or 0),
+			},
+		})
+	end
+
+	local sections = {
+		{ title = "Summary", header = { "", "Value" }, rows = sum },
+	}
+	if #skillRows > 0 then
+		table.insert(sections, {
+			title = "Skills",
+			header = { "Skill", "Uses", "Hits", "Damage", "Crits", "Best hit" },
+			rows = skillRows,
+		})
+	end
+
+	return { id = "p" .. tostring(index), title = p.name,
+		group = "Characters", sections = sections }
+end
+
+-- Scontri: ognuno diventa una PAGINA sua, non una riga in un elenco unico.
+-- Cosi' il pannello puo' aprirli uno per uno (nel diario sono voci cliccabili,
+-- nel log sono schede) invece di appiattirli in un muro di testo.
+
+local DC_FIGHT_KEYS = {
+	{ "DamageDone",   "Damage dealt" },
+	{ "DamageTaken",  "Damage taken" },
+	{ "HealingDone",  "Healing done" },
+	{ "HitDone",      "Hits landed" },
+	{ "HitTaken",     "Hits taken" },
+	{ "CriticalHits", "Critical hits" },
+	{ "HighestDamage","Biggest hit" },
+	{ "AttacksMissed","Attacks missed" },
+	{ "SkillUsed",    "Skills used" },
+	{ "Kills",        "Kills" },
+	{ "Death",        "Deaths" },
+}
+
+local function DC_FightTitle(f, pos)
+	local title = string.format("#%s", tostring(f.seq or pos))
+	if f.region ~= nil and f.region ~= "" then
+		title = title .. "  " .. tostring(f.region)
+	end
+	title = title .. "  " .. DC_FmtDuration((f.endedAt or 0) - (f.startedAt or 0))
+	if f.active then title = title .. "  (in progress)" end
+	return title
+end
+
+local function DC_FightEnemies(f)
+	local foes = {}
+	for _, e in ipairs(f.enemies or {}) do
+		if e.n ~= nil and e.n > 1 then
+			table.insert(foes, string.format("%s x%d", tostring(e.name), e.n))
+		else
+			table.insert(foes, tostring(e.name))
+		end
+	end
+	return foes
+end
+
+-- Pagina di un singolo scontro: tabella per giocatore + le abilita' usate.
+local function DC_PageFight(f, pos)
+	local header = { "" }
+	for _, p in ipairs(f.players or {}) do table.insert(header, p.name) end
+
+	local rows = {}
+	for _, k in ipairs(DC_FIGHT_KEYS) do
+		local vals, any = {}, false
+		for _, p in ipairs(f.players or {}) do
+			local v = (p.stats or {})[k[1]] or 0
+			if v ~= 0 then any = true end
+			table.insert(vals, formatNumber(v))
+		end
+		if any then table.insert(rows, { label = k[2], values = vals }) end
+	end
+
+	local sections = {
+		{ title = "Totals", header = header, rows = rows },
+	}
+
+	local foes = DC_FightEnemies(f)
+	if #foes > 0 then
+		local foeRows = {}
+		for _, name in ipairs(foes) do
+			table.insert(foeRows, { label = name, values = {} })
+		end
+		table.insert(sections, { title = "Enemies", header = { "" }, rows = foeRows })
+	end
+
+	-- Abilita' usate in QUESTO scontro, per giocatore.
+	for _, p in ipairs(f.players or {}) do
+		local skillRows = {}
+		for i, s in ipairs(p.skills or {}) do
+			if i > DC_BOARD_MAX_SKILLS then break end
+			table.insert(skillRows, {
+				label = s.name or s.id,
+				values = {
+					formatNumber(s.uses or 0),
+					formatNumber(s.hits or 0),
+					formatNumber(s.damage or 0),
+					formatNumber(s.critHits or 0),
+					formatNumber(s.maxHit or 0),
+				},
+			})
+		end
+		if #skillRows > 0 then
+			table.insert(sections, {
+				title = tostring(p.name) .. " - skills",
+				header = { "Skill", "Uses", "Hits", "Damage", "Crits", "Best hit" },
+				rows = skillRows,
+			})
+		end
+	end
+
+	return {
+		id = "fight" .. tostring(f.seq or pos),
+		title = DC_FightTitle(f, pos),
+		group = "Fights",
+		sections = sections,
+	}
+end
+
+-- Indice degli scontri: una riga per scontro, per orientarsi prima di aprirlo.
+local function DC_PageFightIndex(fights)
+	local rows = {}
+	for i = #fights, 1, -1 do
+		if #rows >= DC_BOARD_MAX_FIGHTS then break end
+		local f = fights[i]
+		local total = 0
+		for _, p in ipairs(f.players or {}) do
+			total = total + ((p.stats or {}).DamageDone or 0)
+		end
+		local foes = DC_FightEnemies(f)
+		table.insert(rows, {
+			label = DC_FightTitle(f, i),
+			values = {
+				formatNumber(total),
+				table.concat(foes, ", "),
+			},
+		})
+	end
+	if #rows == 0 then
+		return {
+			id = "fights", title = "Fights", group = "Fights",
+			sections = { { title = "No fights recorded yet", header = { "" }, rows = {} } },
+		}
+	end
+	return {
+		id = "fights", title = "Fights", group = "Fights",
+		sections = { {
+			title = "Most recent first",
+			header = { "Fight", "Damage", "Enemies" },
+			rows = rows,
+		} },
+	}
+end
+
+local function DC_BoardPages()
+	local ok, payload = pcall(DC_BuildPayload)
+	if not ok or payload == nil then
+		return { pages = {} }
+	end
+	local allPlayers = payload.players or {}
+	table.sort(allPlayers, function(a, b)
+		return (a.stats.DamageDone or 0) > (b.stats.DamageDone or 0)
+	end)
+
+	-- Il filtro vale solo per il pannello: l'export web continua a vedere
+	-- tutti, altrimenti si perderebbero dati che non si possono ricostruire.
+	local cfg = DC_BoardConfig()
+	local players, skipped = DC_FilterPlayers(allPlayers, cfg)
+
+	local pages = {}
+	if #players > 0 then
+		table.insert(pages, DC_PageTeam(players, skipped))
+		for i, p in ipairs(players) do
+			table.insert(pages, DC_PagePlayer(p, i))
+		end
+	else
+		table.insert(pages, {
+			id = "team", title = "Party", group = "Party",
+			sections = { { title = "No stats yet - land a few hits first.",
+				header = { "" }, rows = {} } },
+		})
+	end
+
+	-- Voci-comando: stanno nella lista come tutte le altre, ma il loro id
+	-- comincia per "cmd:". Il client se ne accorge leggendo quale voce e'
+	-- selezionata e rimanda qui l'ordine (canale DC_BoardCommand), invece di
+	-- limitarsi a mostrarne il testo.
+	local function addCommand(id, title, body)
+		table.insert(pages, {
+			id = "cmd:" .. id,
+			title = title,
+			group = "Options",
+			sections = { { title = body, header = { "" }, rows = {} } },
+		})
+	end
+
+	for _, p in ipairs(players) do
+		addCommand("hide:" .. tostring(p.name), "Hide " .. tostring(p.name),
+			"Click again on another entry to refresh.")
+	end
+	for _, name in ipairs(skipped) do
+		addCommand("show:" .. tostring(name), "Show " .. tostring(name),
+			"Click again on another entry to refresh.")
+	end
+	if #skipped > 0 then
+		addCommand("showall", "Show everyone", "Clears the hidden list.")
+	end
+	addCommand("autohide",
+		(cfg.hideInactive ~= false) and "Auto-hide idle: ON" or "Auto-hide idle: OFF",
+		"Hides characters with no damage, healing, hits or kills.")
+
+	-- Azzeramento in due passi. Dopo il primo click la lista viene rimandata
+	-- con le voci di conferma e annulla IN CODA: la voce armata resta allo
+	-- stesso posto e con lo stesso id, cosi' la selezione che il pannello
+	-- conserva tra un refresh e l'altro non fa scattare la conferma da sola
+	-- (il client ignora un comando finche' la selezione non cambia).
+	if dcResetArmed then
+		addCommand("reset", "Reset all stats: ARMED",
+			"Click 'Confirm reset' below to wipe every counter, spell and fight " ..
+			"recorded in this save. Click 'Cancel reset' (or close the panel) to keep them.")
+		addCommand("reset_confirm", "Confirm reset",
+			"Everything has been reset. New hits start counting from zero.")
+		addCommand("reset_cancel", "Cancel reset", "Nothing was changed.")
+	else
+		addCommand("reset", "Reset all stats",
+			"Zeroes every counter, spell and fight recorded in this save. " ..
+			"Asks for confirmation first.")
+	end
+
+	-- Prima l'indice, poi una pagina per scontro (dal piu' recente).
+	local fights = payload.fights or {}
+	table.insert(pages, DC_PageFightIndex(fights))
+	local added = 0
+	for i = #fights, 1, -1 do
+		if added >= DC_BOARD_MAX_FIGHTS then break end
+		table.insert(pages, DC_PageFight(fights[i], i))
+		added = added + 1
+	end
+
+	return { updatedAt = payload.updatedAt, pages = pages }
+end
+
+-- Rimanda il pannello aggiornato a tutti: un click deve avere un effetto
+-- visibile subito, non richiedere una riapertura.
+local function DC_PushBoard()
+	local okP, data = pcall(DC_BoardPages)
+	if okP and data ~= nil then
+		local okJ, json = pcall(Ext.Json.Stringify, data)
+		if okJ and json ~= nil then
+			pcall(Ext.Net.BroadcastMessage, "DC_ShowBoard2", json)
+		end
+	end
+end
+
+-- Ordini che arrivano dalle voci-comando del pannello. Il payload e' quello
+-- che il client ha letto dall'id della voce: "hide:Nome", "show:Nome",
+-- "showall", "autohide", "reset", "reset_confirm", "reset_cancel".
+Ext.RegisterNetListener("DC_BoardCommand", function(_, payload)
+	local cmd = tostring(payload or "")
+
+	-- Reset: non tocca la configurazione, quindi si gestisce prima e a parte.
+	if cmd == "reset" then
+		dcResetArmed = true
+		DC_PushBoard()
+		return
+	elseif cmd == "reset_cancel" then
+		dcResetArmed = false
+		DC_PushBoard()
+		return
+	elseif cmd == "reset_confirm" then
+		-- Senza il primo passo la conferma non vale: protegge da un refresh
+		-- che lasciasse la selezione su una voce di conferma vecchia.
+		if not dcResetArmed then return end
+		dcResetArmed = false
+		DC_ResetAll("pannello")
+		DC_PushBoard()
+		return
+	end
+
+	local cfg = DC_BoardConfig()
+	if cfg.hidePlayers == nil then cfg.hidePlayers = {} end
+
+	local function dropFromHidden(name)
+		local kept = {}
+		for _, n in ipairs(cfg.hidePlayers) do
+			if string.lower(tostring(n)) ~= string.lower(name) then
+				table.insert(kept, n)
+			end
+		end
+		cfg.hidePlayers = kept
+	end
+
+	if cmd == "showall" then
+		cfg.hidePlayers = {}
+		cfg.hideInactive = false
+	elseif cmd == "autohide" then
+		cfg.hideInactive = (cfg.hideInactive == false)
+	else
+		local action, name = string.match(cmd, "^(%a+):(.+)$")
+		if action == "hide" and name ~= nil then
+			dropFromHidden(name)
+			table.insert(cfg.hidePlayers, name)
+		elseif action == "show" and name ~= nil then
+			dropFromHidden(name)
+			-- Chi era nascosto dal filtro automatico torna visibile solo se il
+			-- filtro si spegne: altrimenti il comando non avrebbe effetto.
+			cfg.hideInactive = false
+		else
+			return
+		end
+	end
+
+	DC_SaveBoardConfig(cfg)
+	DC_PushBoard()
+end)
+
+Ext.RegisterNetListener("DC_RequestBoard2", function(_, _, user)
+	-- Apertura nuova del pannello: un reset lasciato a meta' non sopravvive.
+	dcResetArmed = false
+	local okP, data = pcall(DC_BoardPages)
+	if not okP or data == nil then
+		Ext.Utils.Print("[DamageCounter] board: costruzione pagine fallita: " .. tostring(data))
+		return
+	end
+	local okJ, json = pcall(Ext.Json.Stringify, data)
+	if not okJ or json == nil then
+		Ext.Utils.Print("[DamageCounter] board: serializzazione fallita: " .. tostring(json))
+		return
+	end
+	if user ~= nil and type(Ext.Net.PostMessageToUser) == "function" then
+		if pcall(Ext.Net.PostMessageToUser, user, "DC_ShowBoard2", json) then return end
+	end
+	pcall(Ext.Net.BroadcastMessage, "DC_ShowBoard2", json)
 end)
 
 -- REGISTERS ----------------------------------------
@@ -1824,9 +2382,8 @@ Ext.RegisterConsoleCommand("stats", function()
 end)
 
 Ext.RegisterConsoleCommand("reset_stats", function()
-	ResetStats()
-	Ext.Print("[DamageCounter] ATTENZIONE: il danno inflitto mostrato viene da " ..
-		"player.DamageCounter, un contatore del motore. Questo reset NON lo azzera.")
+	-- Stesso percorso del pannello F7: scarta gli scontri in corso ed esporta.
+	DC_ResetAll("manuale")
 end)
 
 Ext.RegisterConsoleCommand("clear_non_player", function()

@@ -34,7 +34,7 @@ on stream. No dependencies on other mods — no LeaderLib, no Epip.
 | **Per-spell tracking** | Every skill a character uses: casts, hits, total damage, crits, crit damage, biggest hit — with the real in-game skill icons |
 | **Web dashboard** | Dark-themed leaderboard (Vue 3, polling 1s): ranking cards with damage share bars, full stat table with per-row leader highlight |
 | **Spells page** | `/spells` — per-character spell breakdown, character switcher, shareable URL |
-| **In-game panel** | Press **F7** in game: the full scoreboard in a native game window (vanilla `msgBox.swf`, no UI mods required) |
+| **In-game panel** | Press **F7** in game: party scoreboard, per-character spell pages and recent fights in a native journal-style window (no UI mods required). The **Options** group hides/shows characters and resets all stats (two clicks: arm, then confirm) |
 | **Desktop app** | Native dark window (PySide6 + embedded Chromium) that runs the server internally: no terminal, no browser. Settings dialog for stats file path and port |
 | **Console tools** | `!export`, `!stats`, `!dcprobe` (event/listener diagnostics), `!hitlog` (per-hit log), `!reset_stats` and more |
 
@@ -135,7 +135,7 @@ DOS2 (Lua mod)  ──>  DamageCounter_Stats.json  ──>  FastAPI  ──>  pa
 | `!stats` | leaderboard + labeled column dump in the console |
 | `!dcprobe` | diagnostics: event hook status, hit/heal counters, per-character sanity check |
 | `!hitlog` | toggle per-hit logging (flags, branch taken) |
-| `!reset_stats` | zero all counters (aggregate + per-spell) |
+| `!reset_stats` | zero all counters, spells and fights for this save (same as **Reset all stats** in the F7 panel) |
 | `!clear_non_player` | drop malformed entries (non-destructive) |
 
 ## License

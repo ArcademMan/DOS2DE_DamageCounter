@@ -29,11 +29,19 @@ def data_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
-def parse_atlas(lsx: Path) -> dict[str, dict]:
+def parse_atlas(lsx: Path) -> tuple[dict[str, dict], str | None]:
+    """Ritorna (icone, percorso texture dichiarato nel TextureAtlasInfo)."""
     root = ET.parse(lsx).getroot()
     icons: dict[str, dict] = {}
+    texture: str | None = None
     for node in root.iter("node"):
-        if node.get("id") != "IconUV":
+        node_id = node.get("id")
+        if node_id == "TextureAtlasPath":
+            for a in node.iter("attribute"):
+                if a.get("id") == "Path" and a.get("value"):
+                    texture = a.get("value")
+            continue
+        if node_id != "IconUV":
             continue
         attrs = {a.get("id"): a.get("value") for a in node.iter("attribute")}
         key = attrs.get("MapKey")
@@ -48,7 +56,7 @@ def parse_atlas(lsx: Path) -> dict[str, dict]:
             }
         except (KeyError, ValueError):
             continue
-    return icons
+    return icons, texture
 
 
 def build_index(assets_root: Path, out_path: Path,
@@ -56,16 +64,46 @@ def build_index(assets_root: Path, out_path: Path,
     """Scansiona assets_root e scrive l'indice. Ritorna (icone, atlas)."""
     index: dict[str, dict] = {}
     n_atlases = 0
-    dds_by_stem = {p.stem.lower(): p for p in assets_root.rglob("*.dds")}
+    dds_by_stem: dict[str, list[Path]] = {}
+    for p in assets_root.rglob("*.dds"):
+        dds_by_stem.setdefault(p.stem.lower(), []).append(p)
+
+    def nearest(lsx: Path, candidates: list[Path]) -> Path:
+        # mod diverse riusano lo stesso nome atlas (es. newAtlas.dds):
+        # scegli il dds che condivide piu' cartelle iniziali con l'lsx
+        def shared(dds: Path) -> int:
+            a, b = lsx.parent.parts, dds.parent.parts
+            n = 0
+            while n < min(len(a), len(b)) and a[n] == b[n]:
+                n += 1
+            return n
+        return max(candidates, key=shared)
+
+    def find_dds(lsx: Path, texture: str | None) -> Path | None:
+        # il percorso dichiarato nell'lsx e' relativo alla radice della mod
+        # (Public/<Mod>/): risali gli antenati finche' non combacia
+        if texture:
+            rel = texture.replace("\\", "/").lstrip("/")
+            for anc in lsx.parents:
+                cand = anc / rel
+                if cand.is_file():
+                    return cand
+            stem = Path(rel).stem.lower()
+        else:
+            stem = lsx.stem.lower()
+        candidates = dds_by_stem.get(stem)
+        return nearest(lsx, candidates) if candidates else None
+
     for lsx in sorted(assets_root.rglob("*.lsx")):
-        dds = dds_by_stem.get(lsx.stem.lower())
-        if dds is None:
-            log(f"salto {lsx.name}: nessuna texture {lsx.stem}.dds")
-            continue
         try:
-            icons = parse_atlas(lsx)
+            icons, texture = parse_atlas(lsx)
         except ET.ParseError as exc:
             log(f"salto {lsx.name}: XML non valido ({exc})")
+            continue
+        dds = find_dds(lsx, texture)
+        if dds is None:
+            log(f"salto {lsx.name}: nessuna texture "
+                f"{texture or lsx.stem + '.dds'}")
             continue
         if not icons:
             continue

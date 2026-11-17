@@ -50,7 +50,8 @@ const app = createApp({
       clearInterval(clock);
     });
 
-    // Ordine cronologico: #1 in alto, l'ultima fight in fondo. Il numero
+    // Piu' recente in alto: la fight appena finita (o quella in corso) e'
+    // quella che interessa guardare, non la prima della partita. Il numero
     // arriva dalla mod (seq) ed e' stabile: non cambia quando le fight
     // vecchie escono dalla lista.
     const fights = computed(() =>
@@ -65,7 +66,7 @@ const app = createApp({
         regionName: dcLevelName(f.region),
         duration: formatDuration(f),
         whenText: formatWhen(f),
-      }))
+      })).reverse()
     );
 
     // Data reale dello scontro; le fight registrate prima che la mod
